@@ -1,0 +1,213 @@
+{
+  "entities": {
+    "crop": {
+      "title": "Crop",
+      "description": "Information about registered organic crops and vegetables",
+      "type": "object",
+      "properties": {
+        "nome": {
+          "type": "string",
+          "description": "Popular name of the crop"
+        },
+        "cientifico": {
+          "type": "string",
+          "description": "Scientific name of the crop"
+        },
+        "dias": {
+          "type": "number",
+          "description": "Days to first harvest"
+        },
+        "duracao": {
+          "type": "number",
+          "description": "Harvest duration in days"
+        }
+      },
+      "required": ["nome", "dias", "duracao"]
+    },
+    "purchase": {
+      "title": "Purchase",
+      "description": "Record of seedling or seed purchases and active stock",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique purchase item lot identifier"
+        },
+        "data": {
+          "type": "string",
+          "description": "Purchase date (YYYY-MM-DD)"
+        },
+        "fornecedor": {
+          "type": "string",
+          "description": "Supplier name"
+        },
+        "nf": {
+          "type": "string",
+          "description": "Invoice number"
+        },
+        "tipo": {
+          "type": "string",
+          "description": "Type: Muda (seedling) or Semente (seed)"
+        },
+        "cultura": {
+          "type": "string",
+          "description": "Associated crop name"
+        },
+        "quantidade": {
+          "type": "number",
+          "description": "Purchased quantity or grams"
+        },
+        "saldo": {
+          "type": "number",
+          "description": "Current available stock balance"
+        },
+        "status": {
+          "type": "string",
+          "description": "Stock item status (e.g. Ativo, Esgotado)"
+        }
+      },
+      "required": ["id", "data", "fornecedor", "tipo", "cultura", "quantidade", "saldo", "status"]
+    },
+    "planting": {
+      "title": "Planting",
+      "description": "Record of a planting in the field",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique planting identifier"
+        },
+        "idLote": {
+          "type": "string",
+          "description": "Source purchase lot ID"
+        },
+        "data": {
+          "type": "string",
+          "description": "Date of planting (YYYY-MM-DD)"
+        },
+        "cultura": {
+          "type": "string",
+          "description": "Associated crop name"
+        },
+        "tipo": {
+          "type": "string",
+          "description": "Type: Muda, Semente, or Perene"
+        },
+        "talhao": {
+          "type": "string",
+          "description": "Plot or bed identifier"
+        },
+        "quantidade": {
+          "type": "number",
+          "description": "Planted quantity (units or area)"
+        },
+        "previsao": {
+          "type": "string",
+          "description": "Estimated first harvest date"
+        },
+        "status": {
+          "type": "string",
+          "description": "Field status: No campo, Esperando colheita, Colhendo, Finalizado"
+        },
+        "totalColhido": {
+          "type": "number",
+          "description": "Aggregated harvest total"
+        },
+        "unidade": {
+          "type": "string",
+          "description": "Quantity unit (e.g. Unidades, m²)"
+        },
+        "aduboQt": {
+          "type": "number",
+          "description": "Fertilizer cartloads quantity"
+        },
+        "aduboComp": {
+          "type": "string",
+          "description": "Fertilizer composition detail"
+        },
+        "dataFim": {
+          "type": "string",
+          "description": "Finalization date (YYYY-MM-DD)"
+        },
+        "perdas": {
+          "type": "number",
+          "description": "Final planting losses"
+        },
+        "obs": {
+          "type": "string",
+          "description": "Final comments or observations"
+        }
+      },
+      "required": ["id", "data", "cultura", "tipo", "talhao", "quantidade", "status"]
+    },
+    "harvest": {
+      "title": "Harvest",
+      "description": "Daily harvest logging records",
+      "type": "object",
+      "properties": {
+        "idSessao": {
+          "type": "string",
+          "description": "Harvest session grouping identifier"
+        },
+        "idPlantio": {
+          "type": "string",
+          "description": "Source planting identifier"
+        },
+        "data": {
+          "type": "string",
+          "description": "Harvest date (YYYY-MM-DD)"
+        },
+        "cultura": {
+          "type": "string",
+          "description": "Harvested crop name"
+        },
+        "talhao": {
+          "type": "string",
+          "description": "Source plot identifier"
+        },
+        "qtd": {
+          "type": "number",
+          "description": "Harvested quantity"
+        }
+      },
+      "required": ["idSessao", "idPlantio", "data", "cultura", "talhao", "qtd"]
+    },
+    "metadata": {
+      "title": "Metadata",
+      "description": "General system configuration and settings like organic certification details",
+      "type": "object",
+      "properties": {
+        "seloValidade": {
+          "type": "string",
+          "description": "Valid until date of certification"
+        },
+        "seloVisita": {
+          "type": "string",
+          "description": "Last audit visit date"
+        }
+      }
+    }
+  },
+  "firestore": {
+    "/crops/{cropId}": {
+      "schema": "crop",
+      "description": "Collection of registered crop definitions"
+    },
+    "/purchases/{purchaseId}": {
+      "schema": "purchase",
+      "description": "Collection of purchase and stock inventory batches"
+    },
+    "/plantings/{plantingId}": {
+      "schema": "planting",
+      "description": "Collection of plantings in the field"
+    },
+    "/harvests/{harvestId}": {
+      "schema": "harvest",
+      "description": "Collection of individual harvest logs"
+    },
+    "/metadata/{metaId}": {
+      "schema": "metadata",
+      "description": "Collection of global system configurations and certificate dates"
+    }
+  }
+}

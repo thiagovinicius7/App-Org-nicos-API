@@ -1,0 +1,6 @@
+{
+  "name": "Geranium Orgânicos",
+  "description": "Sistema moderno e fluido para gestão de culturas, estoque de sementes/mudas, plantios, colheitas diárias e rastreabilidade da fazenda.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
