@@ -54,9 +54,11 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     fetchData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchData = async (showSpinner = true) => {
     try {
-      setLoading(true);
+      if (showSpinner) {
+        setLoading(true);
+      }
       // Fetch canteiros
       const plantingsSnapshot = await getDocs(collection(db, "plantings"));
       const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
@@ -70,7 +72,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       console.error("Error fetching harvests data:", err);
       onNotify("Erro ao buscar dados de colheita.", "error");
     } finally {
-      setLoading(false);
+      if (showSpinner) {
+        setLoading(false);
+      }
     }
   };
 
@@ -303,7 +307,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       await batch.commit();
       onNotify(`Sessão de colheita gravada com sucesso! (${itemsAdded} lançamentos)`, "success");
       setValoresSessao({});
-      fetchData();
+      fetchData(false);
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
       onNotify("Erro ao gravar colheita em lote.", "error");
@@ -580,7 +584,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             ) : (
               <div className="space-y-6">
                 {categories.map((cat) => {
-                  const catItems = visibleCanteiros.filter(p => getGroupCategory(p) === cat.id);
+                  const catItems = visibleCanteiros
+                    .filter(p => getGroupCategory(p) === cat.id)
+                    .sort((a, b) => a.cultura.localeCompare(b.cultura, "pt-BR"));
                   if (catItems.length === 0) return null;
 
                   return (
@@ -636,14 +642,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                             type="number"
                                             placeholder="Qtd"
                                             value={qtyVal}
-                                            onChange={(e) => handleAutoSaveQtd(p.id!, e.target.value, p.cultura, p.talhao)}
-                                            className={`w-20 px-2 py-1.5 text-center font-bold border rounded-lg text-xs outline-none transition font-mono ${
-                                              inputState === "saving" 
-                                                ? "bg-amber-100 border-amber-400 text-amber-800" 
-                                                : inputState === "saved" 
-                                                ? "bg-emerald-100 border-emerald-400 text-emerald-800" 
-                                                : "bg-white border-slate-200 focus:border-rose-500"
-                                            }`}
+                                            onChange={(e) => setValoresSessao(prev => ({ ...prev, [p.id!]: e.target.value }))}
+                                            className="w-20 px-2 py-1.5 text-center font-bold border border-slate-200 rounded-lg text-xs outline-none transition font-mono bg-white focus:border-rose-500 text-slate-800"
                                           />
                                           <button
                                             onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
