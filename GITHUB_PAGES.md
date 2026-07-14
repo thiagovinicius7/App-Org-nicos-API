@@ -1,17 +1,17 @@
 # Publicando no GitHub Pages (Geranium Orgânicos)
 
-Este guia prático explica como publicar o sistema de gestão no seu **GitHub Pages** de forma automatizada.
+Este guia prático explica como publicar o sistema de gestão no seu **GitHub Pages** de forma 100% automatizada e moderna usando **GitHub Actions**.
 
 ---
 
 ## 🚀 Passo 1: Configurar o Repositório no GitHub
 
 1. Crie um novo repositório no seu GitHub (público ou privado) com o nome desejado (ex: `geranium-organicos`).
-2. Siga as instruções para empurrar seu código atual para lá:
+2. Adicione todos os arquivos do projeto e envie-os para o seu repositório:
    ```bash
    git init
    git add .
-   git commit -m "feat: preparar para github pages"
+   git commit -m "feat: preparar para github pages moderno"
    git branch -M main
    git remote add origin https://github.com/SEU-USUARIO/SEU-REPOSITORIO.git
    git push -u origin main
@@ -21,13 +21,13 @@ Este guia prático explica como publicar o sistema de gestão no seu **GitHub Pa
 
 ## 🔒 Passo 2: Autorizar o seu Domínio no Firebase (Crucial para o Login funcionar)
 
-Como o app usa o Google Sign-In do Firebase, o Firebase bloqueia logins vindos de domínios não autorizados. Você precisa adicionar o link do seu GitHub Pages:
+Como o app usa o Google Sign-In do Firebase para garantir a segurança, o Firebase bloqueia tentativas de login vindas de origens não autorizadas. Você precisa registrar o seu link do GitHub Pages:
 
 1. Acesse o [Console do Firebase](https://console.firebase.google.com/).
-2. Selecione o projeto do **Geranium Orgânicos**.
-3. No menu lateral esquerdo, vá em **Authentication** e selecione a aba **Configurações** (Settings).
+2. Selecione o projeto **Geranium Orgânicos** (ou o projeto correspondente).
+3. No menu esquerdo, vá em **Authentication** e depois clique na aba **Configurações** (Settings) no topo.
 4. Clique em **Domínios autorizados** (Authorized domains).
-5. Clique em **Adicionar domínio** (Add domain) e insira o domínio do seu GitHub Pages:
+5. Clique em **Adicionar domínio** (Add domain) e insira o domínio principal do GitHub Pages:
    ```text
    SEU-USUARIO.github.io
    ```
@@ -35,28 +35,25 @@ Como o app usa o Google Sign-In do Firebase, o Firebase bloqueia logins vindos d
 
 ---
 
-## 🤖 Passo 3: Deploy Automatizado com GitHub Actions
+## 🌐 Passo 3: Ativar o GitHub Pages com Origem "GitHub Actions"
 
-Nós já configuramos um arquivo de Workflow em `.github/workflows/deploy.yml`. 
+Para que o deploy funcione de maneira moderna e automática sem precisar gerenciar branches secundárias (como `gh-pages`):
 
-1. No seu repositório no GitHub, clique na aba **Settings** (Configurações).
-2. No menu lateral esquerdo, sob a seção "Code and automation", clique em **Actions** -> **General**.
-3. Role até o final na seção **Workflow permissions** (Permissões de fluxo de trabalho).
-4. Selecione a opção **Read and write permissions** (Permissões de leitura e gravação) e clique em **Save**.
-5. Agora, toda vez que você der um `git push` na branch `main` ou `master`, o GitHub Actions irá automaticamente:
-   * Instalar as dependências do app.
-   * Compilar o projeto de forma otimizada para produção.
-   * Publicar os arquivos compilados na branch `gh-pages`.
+1. Acesse o seu repositório no GitHub.
+2. Clique na aba **Settings** (Configurações) no topo.
+3. No menu esquerdo, clique em **Pages**.
+4. Sob a seção **Build and deployment**:
+   * Em **Source** (Origem), altere de `Deploy from a branch` para **`GitHub Actions`**.
+5. **Pronto!** Não precisa configurar branches nem salvar. O próprio GitHub Actions cuidará de gerar o build e publicar o site.
 
 ---
 
-## 🌐 Passo 4: Ativar o GitHub Pages no GitHub
+## 🤖 Passo 4: Acompanhar o Build e Ver o Link Publicado
 
-1. Vá na aba **Settings** do seu repositório no GitHub.
-2. No menu esquerdo, sob a seção "Code and automation", clique em **Pages**.
-3. Sob **Build and deployment**:
-   * **Source**: Escolha `Deploy from a branch`.
-   * **Branch**: Selecione `gh-pages` e a pasta `/ (root)`.
-4. Clique em **Save**.
-5. Em poucos instantes, o GitHub exibirá o link público do seu app, por exemplo:
+Agora que a origem está configurada para **GitHub Actions**:
+
+1. Toda vez que você fizer um `git push` na branch `main` ou `master`, um processo automático será iniciado.
+2. Clique na aba **Actions** no seu repositório do GitHub para acompanhar o progresso.
+3. Clique no workflow **Deploy to GitHub Pages**.
+4. Quando o status ficar verde (Sucesso), você verá o link oficial de publicação diretamente na tela do job ou no topo da aba **Pages**, no formato:
    `https://SEU-USUARIO.github.io/SEU-REPOSITORIO/`
