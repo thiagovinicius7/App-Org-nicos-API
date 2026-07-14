@@ -233,7 +233,7 @@ export default function Dashboard({ onChangeTab }: DashboardProps) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <h1 id="dashboard-title" className="text-2xl font-bold text-slate-800 tracking-tight">Painel de Controle</h1>
-          <p className="text-slate-500 text-sm mt-1">Bem-vindo ao Sistema de Gestão da Geranium Orgânicos.</p>
+          <p className="text-slate-500 text-sm mt-1">Bem-vindo ao Gestão Orgânicos Geranium.</p>
         </div>
         
         <div className="flex items-center gap-3">

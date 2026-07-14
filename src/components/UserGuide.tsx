@@ -38,11 +38,11 @@ export default function UserGuide() {
       id: "intro",
       title: "Visão Geral do Sistema",
       icon: BookOpen,
-      subtitle: "Introdução à gestão inteligente de produção da Geranium Orgânicos",
+      subtitle: "Introdução ao Gestão Orgânicos Geranium",
       content: (
         <div className="space-y-6">
           <p className="text-slate-600 leading-relaxed">
-            O sistema <strong>Geranium Orgânicos v2.1</strong> é uma plataforma completa e integrada para planejamento, rastreamento e auditoria de hortaliças e culturas orgânicas. Ele foi desenvolvido para unificar o estoque de insumos (sementes e mudas), os plantios em campo, as adubações, as colheitas diárias e a emissão automática de códigos de rastreabilidade (<strong>"Da Semente ao Prato"</strong>).
+            O sistema <strong>Gestão Orgânicos Geranium v2.1</strong> é uma plataforma completa e integrada para planejamento, rastreamento e auditoria de hortaliças e culturas orgânicas. Ele foi desenvolvido para unificar o estoque de insumos (sementes e mudas), os plantios em campo, as adubações, as colheitas diárias e a emissão automática de códigos de rastreabilidade (<strong>"Da Semente ao Prato"</strong>).
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 my-6">

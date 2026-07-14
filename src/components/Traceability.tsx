@@ -239,7 +239,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                   {/* Document Header */}
                   <div className="flex justify-between items-start border-b-2 border-slate-800 pb-5">
                     <div>
-                      <GeraniumLogo variant="horizontal" size={54} className="!-ml-2" />
+                      <GeraniumLogo variant="horizontal" size={165} className="!-ml-1" />
                       <p className="text-[10px] text-slate-400 uppercase tracking-widest font-black mt-1">Fazenda Certificada Orgânica • Distrito Federal</p>
                       <p className="text-xs text-indigo-700 font-bold italic mt-1">Ficha de Rastreabilidade de Alimentos</p>
                     </div>

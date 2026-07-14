@@ -57,8 +57,8 @@ export default function App() {
       {/* Sidebar (Desktop) - Hidden during Print */}
       <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-slate-200 shrink-0 print:hidden">
         {/* Brand Header */}
-        <div className="p-5 border-b border-slate-200 flex items-center justify-center">
-          <GeraniumLogo variant="full" size={54} className="hover:scale-102 transition duration-200" />
+        <div className="p-4 border-b border-slate-200 flex items-center justify-center">
+          <GeraniumLogo variant="full" size={180} className="hover:scale-[1.02] transition duration-200" />
         </div>
 
         {/* Navigation Menu */}
@@ -94,7 +94,7 @@ export default function App() {
         
         {/* Top Navbar (Mobile / Tablet header) - Hidden during Print */}
         <header className="lg:hidden bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center print:hidden">
-          <GeraniumLogo variant="horizontal" size={38} />
+          <GeraniumLogo variant="horizontal" size={120} />
 
           <button
             onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
