@@ -241,6 +241,9 @@ export default function Plantings({ onNotify }: PlantingsProps) {
       const batch = writeBatch(db);
       const dateForId = formDate.replace(/-/g, "").substring(2); // yyMMdd format
 
+      // Track updated balances locally within this session's save loop
+      const localStockBalances: Record<string, number> = {};
+
       for (const c of canteiros) {
         const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
         const plantingId = `PLAN-${dateForId}-${randomHex}`;
@@ -270,7 +273,13 @@ export default function Plantings({ onNotify }: PlantingsProps) {
           const matchingPurchaseDoc = purchases.find(p => p.id === c.loteId);
           if (matchingPurchaseDoc && matchingPurchaseDoc.id) {
             const purchaseRef = doc(db, "purchases", matchingPurchaseDoc.id);
-            const remainingBalance = matchingPurchaseDoc.saldo - c.quantidade;
+            
+            // Use localStockBalances if already deducted in this session, otherwise use matchingPurchaseDoc.saldo
+            const currentBalance = localStockBalances[c.loteId] !== undefined
+              ? localStockBalances[c.loteId]
+              : matchingPurchaseDoc.saldo;
+
+            const remainingBalance = currentBalance - c.quantidade;
             
             let stockStatus = "Ativo";
             let finalRemainingBalance = remainingBalance;
@@ -282,6 +291,9 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               stockStatus = "Esgotado";
               finalRemainingBalance = 0;
             }
+
+            // Update local stock tracking
+            localStockBalances[c.loteId] = finalRemainingBalance;
 
             batch.update(purchaseRef, {
               saldo: finalRemainingBalance,

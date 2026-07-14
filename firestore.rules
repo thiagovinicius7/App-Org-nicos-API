@@ -8,27 +8,27 @@ service cloud.firestore {
 
     // Crops Collection
     match /crops/{cropId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Purchases & Stock Collection
     match /purchases/{purchaseId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Plantings Collection
     match /plantings/{plantingId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Harvest Logs Collection
     match /harvests/{harvestId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
 
     // Metadata Collection
     match /metadata/{metaId} {
-      allow read, write: if true;
+      allow read, write: if request.auth != null;
     }
   }
 }
