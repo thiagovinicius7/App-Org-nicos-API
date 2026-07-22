@@ -256,8 +256,9 @@ export default function App() {
             Sair da Conta
           </button>
 
-          <div className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">
-            Geranium Orgânicos v2.2
+          <div className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1 space-y-0.5">
+            <div>Geranium Orgânicos v2.2</div>
+            <div className="text-[9px] font-medium text-slate-400 normal-case tracking-normal">criado por Thiago Vinicius P. Leite</div>
           </div>
         </div>
       </aside>

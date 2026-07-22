@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <circle cx="32" cy="32" r="30" fill="#166534" />
+  <!-- Soil base -->
+  <path d="M 16 45 C 24 41, 40 41, 48 45 C 42 51, 22 51, 16 45 Z" fill="#78350f" />
+  <!-- Left Leaf -->
+  <path d="M 32 38 C 20 35, 12 24, 18 14 C 28 15, 32 26, 32 38 Z" fill="#4ade80" />
+  <!-- Right Leaf -->
+  <path d="M 32 38 C 44 35, 52 24, 46 14 C 36 15, 32 26, 32 38 Z" fill="#22c55e" />
+  <!-- Stem -->
+  <path d="M 32 45 Q 31 36 32 22" stroke="#fef08a" stroke-width="2.5" stroke-linecap="round" fill="none" />
+  <!-- Center Sprout -->
+  <path d="M 32 22 C 28 16, 29 10, 32 8 C 35 10, 36 16, 32 22 Z" fill="#bbf7d0" />
+</svg>
