@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Purchase, Crop } from "../types";
+import { Purchase, Crop, Planting } from "../types";
 import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -45,7 +45,46 @@ export default function Purchases({ onNotify }: PurchasesProps) {
 
       // 2. Fetch all inventory purchases
       const purchasesSnapshot = await getDocs(collection(db, "purchases"));
-      const list = purchasesSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Purchase));
+      const list = purchasesSnapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          docId: d.id,
+          id: data.id || d.id,
+        } as Purchase;
+      });
+
+      // 3. Fetch plantings to ensure stock balances (saldo) are synced
+      const plantingsSnapshot = await getDocs(collection(db, "plantings"));
+      const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
+
+      // Calculate and sync any unsynced purchase saldos
+      for (const p of list) {
+        const linkedPlantings = plantingsList.filter(pl => 
+          pl.idLote && (pl.idLote.trim().toUpperCase() === p.id.trim().toUpperCase() || pl.idLote === p.docId)
+        );
+        if (linkedPlantings.length > 0) {
+          const totalPlanted = linkedPlantings.reduce((acc, pl) => acc + (Number(pl.quantidade) || 0), 0);
+          const expectedSaldo = Math.max(0, p.quantidade - totalPlanted);
+          
+          if (p.saldo !== expectedSaldo || (expectedSaldo === 0 && p.status === "Ativo")) {
+            p.saldo = expectedSaldo;
+            if (expectedSaldo === 0) {
+              p.status = "Esgotado";
+            }
+            try {
+              const targetDocId = p.docId || p.id;
+              await updateDoc(doc(db, "purchases", targetDocId), {
+                saldo: expectedSaldo,
+                status: expectedSaldo === 0 ? "Esgotado" : p.status,
+              });
+            } catch (e) {
+              console.error("Error syncing purchase balance:", e);
+            }
+          }
+        }
+      }
+
       // Sort newest purchases first
       list.sort((a, b) => b.data.localeCompare(a.data));
       setPurchases(list);
@@ -76,7 +115,9 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const handleZerarEstoque = async (pId: string) => {
     if (window.confirm("Deseja zerar o saldo desta semente?")) {
       try {
-        const docRef = doc(db, "purchases", pId);
+        const matching = purchases.find(p => p.id === pId || p.docId === pId);
+        const targetDocId = matching?.docId || matching?.id || pId;
+        const docRef = doc(db, "purchases", targetDocId);
         await updateDoc(docRef, {
           saldo: 0,
           status: "Esgotado",
@@ -125,10 +166,11 @@ export default function Purchases({ onNotify }: PurchasesProps) {
       itens.forEach((item) => {
         const randomHex = Math.random().toString(36).substring(2, 6).toUpperCase();
         const lotId = `COMP-${dateForId}-${randomHex}`;
-        const newDocRef = doc(collection(db, "purchases"));
+        const newDocRef = doc(db, "purchases", lotId);
 
         const payload: Purchase = {
           id: lotId,
+          docId: lotId,
           data: compraData,
           fornecedor: compraFornecedor.trim(),
           nf: compraNf.trim() || "S/N",

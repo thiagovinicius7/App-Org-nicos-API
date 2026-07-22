@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, writeBatch, query, orderBy, getDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Planting, Purchase, Crop } from "../types";
+import { Planting, Purchase, Crop, Harvest } from "../types";
 import { Plus, Trash, Eye, Edit2, Calendar, CheckSquare, Loader2, ArrowLeft, X, AlertTriangle, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -26,6 +26,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
+  const [harvests, setHarvests] = useState<Harvest[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   
   const [viewMode, setViewMode] = useState<"actives" | "finalized" | "create">("actives");
@@ -71,13 +72,25 @@ export default function Plantings({ onNotify }: PlantingsProps) {
 
       // 2. Fetch purchases for active lots
       const purchasesSnapshot = await getDocs(collection(db, "purchases"));
-      const purchasesList = purchasesSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Purchase));
+      const purchasesList = purchasesSnapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          docId: d.id,
+          id: data.id || d.id,
+        } as Purchase;
+      });
       setPurchases(purchasesList);
 
       // 3. Fetch canteiro plantings
       const plantingsSnapshot = await getDocs(collection(db, "plantings"));
       const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
       setPlantings(plantingsList);
+
+      // 4. Fetch harvests
+      const harvestsSnapshot = await getDocs(collection(db, "harvests"));
+      const harvestsList = harvestsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Harvest));
+      setHarvests(harvestsList);
     } catch (err) {
       console.error("Error fetching canteiro data:", err);
       onNotify("Erro ao buscar dados do campo.", "error");
@@ -135,7 +148,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
 
   const handleOpenDetails = (p: Planting) => {
     setSelectedPlanting(p);
-    const linkedLot = purchases.find(pur => pur.id === p.idLote) || null;
+    const linkedLot = purchases.find(pur => pur.id === p.idLote || pur.docId === p.idLote) || null;
     setAssociatedPurchase(linkedLot);
     setIsDetailOpen(true);
   };
@@ -270,9 +283,10 @@ export default function Plantings({ onNotify }: PlantingsProps) {
 
         // Deduct from purchase stock batch if not perene
         if (c.tipo !== "Perene" && c.loteId) {
-          const matchingPurchaseDoc = purchases.find(p => p.id === c.loteId);
-          if (matchingPurchaseDoc && matchingPurchaseDoc.id) {
-            const purchaseRef = doc(db, "purchases", matchingPurchaseDoc.id);
+          const matchingPurchaseDoc = purchases.find(p => p.id === c.loteId || p.docId === c.loteId);
+          if (matchingPurchaseDoc) {
+            const targetDocId = matchingPurchaseDoc.docId || matchingPurchaseDoc.id || c.loteId;
+            const purchaseRef = doc(db, "purchases", targetDocId);
             
             // Use localStockBalances if already deducted in this session, otherwise use matchingPurchaseDoc.saldo
             const currentBalance = localStockBalances[c.loteId] !== undefined
@@ -949,19 +963,30 @@ export default function Plantings({ onNotify }: PlantingsProps) {
 
             <div className="p-6 space-y-5 overflow-y-auto max-h-[480px]">
               {/* Origin block */}
-              {associatedPurchase && (
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">📦 Origem e Compra</h4>
-                  <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Fornecedor:</span> {associatedPurchase.fornecedor}</p>
-                  <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Nota Fiscal:</span> {associatedPurchase.nf}</p>
-                  <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Data Compra:</span> {formatToBrazDate(associatedPurchase.data)}</p>
-                </div>
-              )}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest">📦 Origem e Compra</h4>
+                <p className="text-sm text-slate-700">
+                  <span className="font-bold text-slate-500">ID da Compra:</span>{" "}
+                  <span className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    {selectedPlanting.idLote || associatedPurchase?.id || "N/A (Cultura Perene)"}
+                  </span>
+                </p>
+                {associatedPurchase && (
+                  <>
+                    <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Fornecedor:</span> {associatedPurchase.fornecedor}</p>
+                    <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Nota Fiscal:</span> {associatedPurchase.nf}</p>
+                    <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Data Compra:</span> {formatToBrazDate(associatedPurchase.data)}</p>
+                  </>
+                )}
+              </div>
 
               {/* Plant block */}
               <div className="bg-emerald-50/35 p-4 rounded-xl border border-emerald-200/30 space-y-2">
                 <h4 className="text-xs font-bold text-emerald-800 uppercase tracking-widest">🌿 Canteiro</h4>
-                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">ID Plantio:</span> <span className="font-mono text-xs font-bold">{selectedPlanting.id}</span></p>
+                <p className="text-sm text-slate-700">
+                  <span className="font-bold text-slate-500">ID do Plantio:</span>{" "}
+                  <span className="font-mono text-xs font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200">{selectedPlanting.id}</span>
+                </p>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Cultura:</span> {selectedPlanting.cultura}</p>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Talhão:</span> {selectedPlanting.talhao}</p>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Data de Plantio:</span> {formatToBrazDate(selectedPlanting.data)}</p>
@@ -972,8 +997,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               </div>
 
               {/* Harvest block */}
-              <div className="bg-indigo-50/35 p-4 rounded-xl border border-indigo-200/30 space-y-2">
-                <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-widest">🍓 Produção acumulada</h4>
+              <div className="bg-indigo-50/35 p-4 rounded-xl border border-indigo-200/30 space-y-3">
+                <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-widest">🍓 Produção Acumulada e Colheitas</h4>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Total Colhido:</span> {selectedPlanting.totalColhido} {selectedPlanting.unidade}</p>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Status atual:</span> <span className="font-bold text-indigo-700">{selectedPlanting.status}</span></p>
                 {selectedPlanting.status === "Finalizado" && (
@@ -983,6 +1008,32 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                     {selectedPlanting.obs && <p className="text-sm text-slate-600 italic bg-white p-2 rounded border border-slate-200">"{selectedPlanting.obs}"</p>}
                   </>
                 )}
+
+                {/* IDs das Colheitas */}
+                <div className="pt-2 border-t border-indigo-200/50 space-y-1.5">
+                  <span className="text-xs font-bold text-indigo-900 block uppercase tracking-wider">
+                    IDs das Colheitas ({harvests.filter(h => h.idPlantio === selectedPlanting.id).length}):
+                  </span>
+                  {harvests.filter(h => h.idPlantio === selectedPlanting.id).length === 0 ? (
+                    <p className="text-xs text-slate-500 italic bg-white/60 p-2 rounded border border-slate-200/60">
+                      Nenhuma colheita registrada para este plantio.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                      {harvests
+                        .filter(h => h.idPlantio === selectedPlanting.id)
+                        .map((h, idx) => (
+                          <div key={h.id || idx} className="text-xs font-mono bg-white p-2.5 rounded-lg border border-indigo-100 flex justify-between items-center text-slate-700 shadow-xs">
+                            <div>
+                              <span className="font-bold text-indigo-700 block">{h.id || h.idSessao || `COL-${idx}`}</span>
+                              <span className="text-[10px] text-slate-500 block font-sans">{formatToBrazDate(h.data)}</span>
+                            </div>
+                            <span className="font-bold text-emerald-600 font-mono text-sm">{h.qtd} {selectedPlanting.unidade}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 

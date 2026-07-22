@@ -8,6 +8,7 @@ export interface Crop {
 
 export interface Purchase {
   id: string; // e.g., COMP-YYMMDD-RAND
+  docId?: string; // Firestore document ID
   data: string; // YYYY-MM-DD
   fornecedor: string;
   nf: string;
