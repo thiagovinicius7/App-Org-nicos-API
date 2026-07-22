@@ -17,6 +17,7 @@ export interface Purchase {
   quantidade: number;
   saldo: number;
   status: "Ativo" | "Esgotado" | string;
+  motivoZerar?: string;
 }
 
 export interface Planting {

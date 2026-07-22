@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Crop, Planting } from "../types";
-import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check } from "lucide-react";
+import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface PurchasesProps {
@@ -29,6 +29,11 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [compraNf, setCompraNf] = useState<string>("");
   const [itens, setItens] = useState<NewPurchaseItem[]>([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
   const [saving, setSaving] = useState<boolean>(false);
+
+  // Zerar Estoque Modal States
+  const [selectedPurchaseToZero, setSelectedPurchaseToZero] = useState<Purchase | null>(null);
+  const [motivoZerarOption, setMotivoZerarOption] = useState<string>("Mortalidade / Perda no viveiro");
+  const [detalhesMotivo, setDetalhesMotivo] = useState<string>("");
 
   useEffect(() => {
     fetchData();
@@ -60,6 +65,30 @@ export default function Purchases({ onNotify }: PurchasesProps) {
 
       // Calculate and sync any unsynced purchase saldos
       for (const p of list) {
+        const isSemente = p.tipo === "Semente" || p.tipo === "Sementes";
+
+        // For Sementes: DO NOT auto-deduct quantity by mudas planted.
+        if (isSemente) {
+          // If it was auto-zeroed previously without an explicit manual motivoZerar, restore it to active!
+          if (p.status === "Esgotado" && p.saldo === 0 && (!p.motivoZerar || p.motivoZerar === "Auto-dedução")) {
+            p.saldo = p.quantidade;
+            p.status = "Ativo";
+            delete p.motivoZerar;
+            try {
+              const targetDocId = p.docId || p.id;
+              await updateDoc(doc(db, "purchases", targetDocId), {
+                saldo: p.quantidade,
+                status: "Ativo",
+                motivoZerar: null,
+              });
+            } catch (e) {
+              console.error("Error restoring semente balance:", e);
+            }
+          }
+          continue; // Skip auto-deduct for Sementes
+        }
+
+        // For Mudas: deduct based on planted quantity
         const linkedPlantings = plantingsList.filter(pl => 
           pl.idLote && (pl.idLote.trim().toUpperCase() === p.id.trim().toUpperCase() || pl.idLote === p.docId)
         );
@@ -69,14 +98,16 @@ export default function Purchases({ onNotify }: PurchasesProps) {
           
           if (p.saldo !== expectedSaldo || (expectedSaldo === 0 && p.status === "Ativo")) {
             p.saldo = expectedSaldo;
-            if (expectedSaldo === 0) {
+            if (expectedSaldo === 0 && !p.motivoZerar) {
               p.status = "Esgotado";
+              p.motivoZerar = "Plantio Total em Canteiros";
             }
             try {
               const targetDocId = p.docId || p.id;
               await updateDoc(doc(db, "purchases", targetDocId), {
                 saldo: expectedSaldo,
                 status: expectedSaldo === 0 ? "Esgotado" : p.status,
+                motivoZerar: expectedSaldo === 0 ? (p.motivoZerar || "Plantio Total em Canteiros") : (p.motivoZerar || null),
               });
             } catch (e) {
               console.error("Error syncing purchase balance:", e);
@@ -112,22 +143,43 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     setItens(updated);
   };
 
-  const handleZerarEstoque = async (pId: string) => {
-    if (window.confirm("Deseja zerar o saldo desta semente?")) {
-      try {
-        const matching = purchases.find(p => p.id === pId || p.docId === pId);
-        const targetDocId = matching?.docId || matching?.id || pId;
-        const docRef = doc(db, "purchases", targetDocId);
-        await updateDoc(docRef, {
-          saldo: 0,
-          status: "Esgotado",
-        });
-        onNotify("Estoque de semente zerado com sucesso!", "success");
-        fetchData();
-      } catch (err) {
-        console.error("Error setting stock to empty:", err);
-        onNotify("Erro ao zerar estoque.", "error");
-      }
+  const handleConfirmZerar = async () => {
+    if (!selectedPurchaseToZero) return;
+    try {
+      const finalMotivo = motivoZerarOption === "Outro motivo"
+        ? (detalhesMotivo.trim() || "Outro motivo")
+        : (detalhesMotivo.trim() ? `${motivoZerarOption}: ${detalhesMotivo.trim()}` : motivoZerarOption);
+
+      const targetDocId = selectedPurchaseToZero.docId || selectedPurchaseToZero.id;
+      await updateDoc(doc(db, "purchases", targetDocId), {
+        saldo: 0,
+        status: "Esgotado",
+        motivoZerar: finalMotivo,
+      });
+
+      onNotify(`Estoque do lote ${selectedPurchaseToZero.id} zerado (${finalMotivo})`, "success");
+      setSelectedPurchaseToZero(null);
+      setDetalhesMotivo("");
+      fetchData();
+    } catch (err) {
+      console.error("Error zeroing stock:", err);
+      onNotify("Erro ao zerar estoque.", "error");
+    }
+  };
+
+  const handleRestaurarSaldo = async (p: Purchase) => {
+    try {
+      const targetDocId = p.docId || p.id;
+      await updateDoc(doc(db, "purchases", targetDocId), {
+        saldo: p.quantidade,
+        status: "Ativo",
+        motivoZerar: null,
+      });
+      onNotify(`Lote ${p.id} reativado no estoque com saldo de ${p.quantidade}!`, "success");
+      fetchData();
+    } catch (err) {
+      console.error("Error restoring balance:", err);
+      onNotify("Erro ao reativar lote.", "error");
     }
   };
 
@@ -273,13 +325,14 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                           <th className="p-4">Lote / Data</th>
                           <th className="p-4">Cultura</th>
                           <th className="p-4">Fornecedor</th>
-                          <th className="p-4 text-right">Saldo</th>
+                          <th className="p-4 text-center">Saldo</th>
+                          <th className="p-4 text-right">Ação</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {activeMudas.length === 0 ? (
                           <tr>
-                            <td colSpan={4} className="p-8 text-center text-slate-400 text-xs font-semibold">
+                            <td colSpan={5} className="p-8 text-center text-slate-400 text-xs font-semibold">
                               Nenhuma muda ativa em estoque.
                             </td>
                           </tr>
@@ -292,8 +345,20 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                               </td>
                               <td className="p-4 font-bold text-slate-800">{p.cultura}</td>
                               <td className="p-4 text-slate-500 text-xs font-medium">{p.fornecedor}</td>
-                              <td className="p-4 text-right text-emerald-600 font-black font-mono text-sm">
+                              <td className="p-4 text-center text-emerald-600 font-black font-mono text-sm">
                                 {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">unid</span>
+                              </td>
+                              <td className="p-4 text-right">
+                                <button
+                                  onClick={() => {
+                                    setSelectedPurchaseToZero(p);
+                                    setMotivoZerarOption("Mortalidade / Perda no viveiro");
+                                    setDetalhesMotivo("");
+                                  }}
+                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
+                                >
+                                  Zerar Estoque
+                                </button>
                               </td>
                             </tr>
                           ))
@@ -317,7 +382,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                           <th className="p-4">Lote / Data</th>
                           <th className="p-4">Cultura</th>
                           <th className="p-4">Fornecedor</th>
-                          <th className="p-4 text-center">Saldo</th>
+                          <th className="p-4 text-center">Quantidade / Saldo</th>
                           <th className="p-4 text-right">Ação</th>
                         </tr>
                       </thead>
@@ -338,11 +403,15 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                               <td className="p-4 font-bold text-slate-800">{p.cultura}</td>
                               <td className="p-4 text-slate-500 text-xs font-medium">{p.fornecedor}</td>
                               <td className="p-4 text-center text-indigo-600 font-black font-mono text-sm">
-                                {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">g</span>
+                                {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">em estoque</span>
                               </td>
                               <td className="p-4 text-right">
                                 <button
-                                  onClick={() => handleZerarEstoque(p.id!)}
+                                  onClick={() => {
+                                    setSelectedPurchaseToZero(p);
+                                    setMotivoZerarOption("Estoque finalizado / Consumo total");
+                                    setDetalhesMotivo("");
+                                  }}
                                   className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
                                 >
                                   Zerar Estoque
@@ -382,9 +451,9 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                             <tr className="bg-slate-100 border-b border-slate-200 text-[9px] font-bold text-slate-400 uppercase tracking-widest">
                               <th className="p-3">Lote / Data</th>
                               <th className="p-3">Cultura</th>
-                              <th className="p-3">Tipo</th>
-                              <th className="p-3">Fornecedor</th>
-                              <th className="p-3 text-right">Status</th>
+                              <th className="p-3">Tipo / Fornecedor</th>
+                              <th className="p-3">Motivo / Obs</th>
+                              <th className="p-3 text-right">Ação</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-150">
@@ -399,12 +468,18 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                 <tr key={p.id} className="hover:bg-slate-100/30 transition text-slate-500">
                                   <td className="p-3 font-mono font-medium">{p.id}<br/>{formatToBrazDate(p.data)}</td>
                                   <td className="p-3 font-bold text-slate-700">{p.cultura}</td>
-                                  <td className="p-3 font-medium">{p.tipo}</td>
-                                  <td className="p-3 font-medium">{p.fornecedor}</td>
+                                  <td className="p-3 font-medium">{p.tipo} - <span className="text-slate-500">{p.fornecedor}</span></td>
+                                  <td className="p-3 text-xs">
+                                    <span className="font-semibold text-slate-600 block">{p.motivoZerar || "Lote Plantado / Esgotado"}</span>
+                                  </td>
                                   <td className="p-3 text-right">
-                                    <span className="px-2 py-0.5 rounded bg-slate-200 text-slate-600 text-[9px] font-black uppercase tracking-wider">
-                                      {p.status === "Esgotado" ? "Esgotado" : p.status}
-                                    </span>
+                                    <button
+                                      onClick={() => handleRestaurarSaldo(p)}
+                                      className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2.5 py-1 rounded text-[11px] transition cursor-pointer border border-emerald-100/40"
+                                      title="Reativar e restaurar saldo no estoque"
+                                    >
+                                      Restaurar Saldo
+                                    </button>
                                   </td>
                                 </tr>
                               ))
@@ -417,6 +492,90 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                 </div>
               </div>
             )}
+
+            {/* Zerar Estoque Modal */}
+            <AnimatePresence>
+              {selectedPurchaseToZero && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+                  <motion.div
+                    initial={{ scale: 0.95, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.95, opacity: 0 }}
+                    className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden space-y-4 p-6"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="text-base font-bold text-slate-800">Zerar Estoque de Item</h3>
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          Lote <span className="font-mono font-bold text-emerald-700">{selectedPurchaseToZero.id}</span> ({selectedPurchaseToZero.cultura})
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedPurchaseToZero(null)}
+                        className="text-slate-400 hover:text-slate-600 p-1"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200/60 text-xs text-slate-600">
+                      <p><span className="font-bold text-slate-500">Fornecedor:</span> {selectedPurchaseToZero.fornecedor}</p>
+                      <p><span className="font-bold text-slate-500">Tipo:</span> {selectedPurchaseToZero.tipo}</p>
+                      <p><span className="font-bold text-slate-500">Quantidade Inicial:</span> {selectedPurchaseToZero.quantidade}</p>
+                      <p><span className="font-bold text-slate-500">Saldo Atual:</span> {selectedPurchaseToZero.saldo}</p>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                        Motivo da Baixa / Zeramento
+                      </label>
+                      <select
+                        value={motivoZerarOption}
+                        onChange={(e) => setMotivoZerarOption(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-emerald-500"
+                      >
+                        <option value="Mortalidade / Perda no viveiro">Mortalidade / Perda no viveiro</option>
+                        <option value="Estoque finalizado / Consumo total">Estoque finalizado / Consumo total</option>
+                        <option value="Praga ou Doença">Ataque de Praga ou Doença</option>
+                        <option value="Deterioração / Validade">Deterioração / Perda da validade</option>
+                        <option value="Avaria / Acidente de Manuseio">Avaria ou Acidente no manuseio</option>
+                        <option value="Outro motivo">Outro motivo (especificar abaixo)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                        Observações adicionais (opcional)
+                      </label>
+                      <textarea
+                        rows={2}
+                        placeholder="Ex: Mudas sentiram o calor ou sementes acabaram no plantio..."
+                        value={detalhesMotivo}
+                        onChange={(e) => setDetalhesMotivo(e.target.value)}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-emerald-500"
+                      />
+                    </div>
+
+                    <div className="flex gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPurchaseToZero(null)}
+                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleConfirmZerar}
+                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs"
+                      >
+                        Confirmar e Zerar
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
           </motion.div>
         ) : (
           <motion.div
