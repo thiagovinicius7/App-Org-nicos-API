@@ -59,65 +59,8 @@ export default function Purchases({ onNotify }: PurchasesProps) {
         } as Purchase;
       });
 
-      // 3. Fetch plantings to ensure stock balances (saldo) are synced
-      const plantingsSnapshot = await getDocs(collection(db, "plantings"));
-      const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
-
-      // Calculate and sync any unsynced purchase saldos
-      for (const p of list) {
-        const isSemente = p.tipo === "Semente" || p.tipo === "Sementes";
-
-        // For Sementes: DO NOT auto-deduct quantity by mudas planted.
-        if (isSemente) {
-          // If it was auto-zeroed previously without an explicit manual motivoZerar, restore it to active!
-          if (p.status === "Esgotado" && p.saldo === 0 && (!p.motivoZerar || p.motivoZerar === "Auto-dedução")) {
-            p.saldo = p.quantidade;
-            p.status = "Ativo";
-            delete p.motivoZerar;
-            try {
-              const targetDocId = p.docId || p.id;
-              await updateDoc(doc(db, "purchases", targetDocId), {
-                saldo: p.quantidade,
-                status: "Ativo",
-                motivoZerar: null,
-              });
-            } catch (e) {
-              console.error("Error restoring semente balance:", e);
-            }
-          }
-          continue; // Skip auto-deduct for Sementes
-        }
-
-        // For Mudas: deduct based on planted quantity
-        const linkedPlantings = plantingsList.filter(pl => 
-          pl.idLote && (pl.idLote.trim().toUpperCase() === p.id.trim().toUpperCase() || pl.idLote === p.docId)
-        );
-        if (linkedPlantings.length > 0) {
-          const totalPlanted = linkedPlantings.reduce((acc, pl) => acc + (Number(pl.quantidade) || 0), 0);
-          const expectedSaldo = Math.max(0, p.quantidade - totalPlanted);
-          
-          if (p.saldo !== expectedSaldo || (expectedSaldo === 0 && p.status === "Ativo")) {
-            p.saldo = expectedSaldo;
-            if (expectedSaldo === 0 && !p.motivoZerar) {
-              p.status = "Esgotado";
-              p.motivoZerar = "Plantio Total em Canteiros";
-            }
-            try {
-              const targetDocId = p.docId || p.id;
-              await updateDoc(doc(db, "purchases", targetDocId), {
-                saldo: expectedSaldo,
-                status: expectedSaldo === 0 ? "Esgotado" : p.status,
-                motivoZerar: expectedSaldo === 0 ? (p.motivoZerar || "Plantio Total em Canteiros") : (p.motivoZerar || null),
-              });
-            } catch (e) {
-              console.error("Error syncing purchase balance:", e);
-            }
-          }
-        }
-      }
-
       // Sort newest purchases first
-      list.sort((a, b) => b.data.localeCompare(a.data));
+      list.sort((a, b) => parseDateToTimestamp(b.data) - parseDateToTimestamp(a.data));
       setPurchases(list);
     } catch (err) {
       console.error("Error fetching inventory data:", err);
@@ -125,6 +68,24 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const parseDateToTimestamp = (dateStr?: string): number => {
+    if (!dateStr) return 0;
+    const str = dateStr.trim();
+    if (str.includes("/")) {
+      const parts = str.split("/");
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (year < 100) year += 2000;
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
   };
 
   const addItemRow = () => {
@@ -248,23 +209,41 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     }
   };
 
-  const formatToBrazDate = (dateStr: string) => {
+  const formatToBrazDate = (dateStr?: string) => {
+    if (!dateStr) return "-";
+    if (dateStr.includes("/")) return dateStr;
     const parts = dateStr.split("-");
     if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+      return `${parts[2].substring(0, 2)}/${parts[1]}/${parts[0]}`;
     }
     return dateStr;
   };
 
-  const activeMudas = purchases.filter(p => p.tipo === "Muda" && p.status === "Ativo" && p.saldo > 0 &&
-    (p.cultura.toLowerCase().includes(search.toLowerCase()) || p.fornecedor.toLowerCase().includes(search.toLowerCase()))
+  const isSemente = (tipo?: string) => {
+    if (!tipo) return false;
+    return tipo.toLowerCase().includes("semente");
+  };
+
+  const isMuda = (tipo?: string) => {
+    if (!tipo) return true;
+    return !isSemente(tipo);
+  };
+
+  const activeMudas = purchases.filter(p => 
+    isMuda(p.tipo) && 
+    (p.status === "Ativo" || !p.status) && 
+    (p.saldo === undefined || p.saldo > 0) &&
+    ((p.cultura || "").toLowerCase().includes(search.toLowerCase()) || (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()))
   );
 
-  const activeSementes = purchases.filter(p => p.tipo === "Semente" && p.status === "Ativo" && p.saldo > 0 &&
-    (p.cultura.toLowerCase().includes(search.toLowerCase()) || p.fornecedor.toLowerCase().includes(search.toLowerCase()))
+  const activeSementes = purchases.filter(p => 
+    isSemente(p.tipo) && 
+    (p.status === "Ativo" || !p.status) && 
+    (p.saldo === undefined || p.saldo > 0) &&
+    ((p.cultura || "").toLowerCase().includes(search.toLowerCase()) || (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()))
   );
 
-  const inactivePurchases = purchases.filter(p => p.status !== "Ativo" || p.saldo === 0);
+  const inactivePurchases = purchases.filter(p => p.status === "Esgotado" || (p.saldo !== undefined && p.saldo <= 0));
 
   return (
     <div className="space-y-6">
