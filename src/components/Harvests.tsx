@@ -99,9 +99,33 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     if (calcStatus === "Colheita atrasada") return 2;
     if (calcStatus === "Esperando colheita") return 3;
     
+    // Check if user manually marked to display in Sítio group
+    if (p.displayInSitio) return 1;
+
     // Check if plot / talhao is numeric
     const isNumeric = !isNaN(Number(p.talhao)) && p.talhao.trim() !== "";
     return isNumeric ? 0 : 1;
+  };
+
+  const handleToggleDisplayInSitio = async (planting: Planting) => {
+    if (!planting.id) return;
+    const newValue = !planting.displayInSitio;
+    try {
+      const pRef = doc(db, "plantings", planting.id);
+      await updateDoc(pRef, { displayInSitio: newValue });
+      
+      setPlantings(prev => prev.map(p => p.id === planting.id ? { ...p, displayInSitio: newValue } : p));
+      
+      onNotify(
+        newValue 
+          ? `Canteiro ${planting.id} movido para exibição no Sítio!` 
+          : `Canteiro ${planting.id} retornado para Talhões Numéricos.`, 
+        "success"
+      );
+    } catch (err) {
+      console.error("Error toggling displayInSitio:", err);
+      onNotify("Erro ao alterar exibição no Sítio.", "error");
+    }
   };
 
   const categories = [
@@ -621,7 +645,22 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                     <span className="font-bold text-slate-800 text-sm block">{p.cultura}</span>
                                     <span className="text-[10px] text-slate-400 font-medium">Tipo: {p.tipo}</span>
                                   </td>
-                                  <td className="p-4 text-center font-bold text-slate-700">{p.talhao}</td>
+                                  <td className="p-4 text-center">
+                                    <span className="font-bold text-slate-700 block">{p.talhao}</span>
+                                    {(!isNaN(Number(p.talhao)) && p.talhao.trim() !== "") && (
+                                      <button
+                                        onClick={() => handleToggleDisplayInSitio(p)}
+                                        title={p.displayInSitio ? "Voltar para grupo de Talhões Numéricos" : "Exibir no grupo Sítio sem alterar o número do talhão"}
+                                        className={`mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded transition cursor-pointer border inline-flex items-center gap-1 ${
+                                          p.displayInSitio
+                                            ? "bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100"
+                                            : "bg-slate-100 text-slate-500 border-slate-200 hover:bg-slate-200 hover:text-slate-800"
+                                        }`}
+                                      >
+                                        {p.displayInSitio ? "🌿 No Sítio (Restaurar)" : "➡️ Mover p/ Sítio"}
+                                      </button>
+                                    )}
+                                  </td>
                                   <td className="p-4 text-center">
                                     <button
                                       onClick={() => handleToggleHistoryLogs(p.id!, p.cultura)}

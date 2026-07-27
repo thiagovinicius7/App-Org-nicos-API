@@ -372,6 +372,25 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   // State for search and filters
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [filterTalhao, setFilterTalhao] = useState<string>("Todos");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+
+  const parseDateToTimestamp = (dateStr?: string): number => {
+    if (!dateStr) return 0;
+    const str = dateStr.trim();
+    if (str.includes("/")) {
+      const parts = str.split("/");
+      if (parts.length === 3) {
+        const day = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (year < 100) year += 2000;
+        const d = new Date(year, month, day);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+    }
+    const d = new Date(str);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  };
 
   // Dynamic values
   const uniqueTalhoes = Array.from(new Set(plantings.map(p => p.talhao).filter(Boolean))).sort();
@@ -432,7 +451,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               </div>
             </div>
 
-            {/* Filters Bar */}
+            {/* Active Filters Bar */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4">
               <div className="flex-1 relative">
                 <input
@@ -443,7 +462,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition font-semibold text-slate-800"
                 />
               </div>
-              <div className="w-full sm:w-[200px]">
+              <div className="w-full sm:w-[180px]">
                 <select
                   value={filterTalhao}
                   onChange={(e) => setFilterTalhao(e.target.value)}
@@ -453,6 +472,16 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                   {uniqueTalhoes.map(t => (
                     <option key={t} value={t}>Talhão {t}</option>
                   ))}
+                </select>
+              </div>
+              <div className="w-full sm:w-[220px]">
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as "asc" | "desc")}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 outline-none transition font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value="asc">Plantio: Crescente (Antigos → Novos)</option>
+                  <option value="desc">Plantio: Decrescente (Novos → Antigos)</option>
                 </select>
               </div>
             </div>
@@ -477,7 +506,13 @@ export default function Plantings({ onNotify }: PlantingsProps) {
             ) : (
               <div className="space-y-6">
                 {groupOrder.map((groupKey) => {
-                  const groupItems = activePlantings.filter(p => getCalculatedStatus(p) === groupKey);
+                  const groupItems = activePlantings
+                    .filter(p => getCalculatedStatus(p) === groupKey)
+                    .sort((a, b) => {
+                      const timeA = parseDateToTimestamp(a.data);
+                      const timeB = parseDateToTimestamp(b.data);
+                      return sortOrder === "asc" ? timeA - timeB : timeB - timeA;
+                    });
                   if (groupItems.length === 0) return null;
                   const groupTheme = getStatusLabelAndColor(groupKey);
 
@@ -562,7 +597,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               </button>
             </div>
 
-            {/* Filters Bar */}
+            {/* Finalized Filters Bar */}
             <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4">
               <div className="flex-1 relative">
                 <input
@@ -573,7 +608,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-emerald-500 outline-none transition font-semibold text-slate-800"
                 />
               </div>
-              <div className="w-full sm:w-[200px]">
+              <div className="w-full sm:w-[180px]">
                 <select
                   value={filterTalhao}
                   onChange={(e) => setFilterTalhao(e.target.value)}
@@ -583,6 +618,16 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                   {uniqueTalhoes.map(t => (
                     <option key={t} value={t}>Talhão {t}</option>
                   ))}
+                </select>
+              </div>
+              <div className="w-full sm:w-[220px]">
+                <select
+                  value={sortOrder}
+                  onChange={(e) => setSortOrder(e.target.value as "asc" | "desc")}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:border-emerald-500 outline-none transition font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value="asc">Plantio: Crescente (Antigos → Novos)</option>
+                  <option value="desc">Plantio: Decrescente (Novos → Antigos)</option>
                 </select>
               </div>
             </div>
@@ -621,7 +666,11 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {finalizedPlantings.map((p) => (
+                      {[...finalizedPlantings].sort((a, b) => {
+                        const timeA = parseDateToTimestamp(a.data);
+                        const timeB = parseDateToTimestamp(b.data);
+                        return sortOrder === "asc" ? timeA - timeB : timeB - timeA;
+                      }).map((p) => (
                         <tr key={p.id} className="hover:bg-slate-50/30 transition text-slate-600">
                           <td className="p-4 font-mono text-xs font-bold text-slate-400">{p.id}</td>
                           <td className="p-4 font-bold text-slate-800">{p.cultura}</td>

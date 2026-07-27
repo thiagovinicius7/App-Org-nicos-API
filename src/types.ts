@@ -37,6 +37,7 @@ export interface Planting {
   dataFim?: string | null;
   perdas?: number;
   obs?: string;
+  displayInSitio?: boolean;
 }
 
 export interface Harvest {
