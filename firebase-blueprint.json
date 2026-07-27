@@ -186,6 +186,26 @@
           "description": "Last audit visit date"
         }
       }
+    },
+    "authorized_email": {
+      "title": "Authorized Email",
+      "description": "Allowed user email for application access",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Allowed user email address"
+        },
+        "addedBy": {
+          "type": "string",
+          "description": "Email or ID of user who authorized this email"
+        },
+        "addedAt": {
+          "type": "string",
+          "description": "Timestamp when authorization was granted"
+        }
+      },
+      "required": ["email"]
     }
   },
   "firestore": {
@@ -208,6 +228,10 @@
     "/metadata/{metaId}": {
       "schema": "metadata",
       "description": "Collection of global system configurations and certificate dates"
+    },
+    "/authorized_emails/{emailId}": {
+      "schema": "authorized_email",
+      "description": "Collection of allowed user emails for login authorization"
     }
   }
 }

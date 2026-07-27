@@ -10,6 +10,8 @@ import UserGuide from "./components/UserGuide";
 import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
 import { auth, googleSignIn, logout } from "./lib/firebase";
+import { isEmailAuthorized } from "./lib/authorizedEmails";
+import AuthorizedEmailsModal from "./components/AuthorizedEmailsModal";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { 
   LayoutDashboard, 
@@ -26,7 +28,9 @@ import {
   AlertCircle, 
   FileSpreadsheet, 
   HelpCircle,
-  LogOut
+  LogOut,
+  ShieldCheck,
+  Lock
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -45,14 +49,27 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
+  const [unauthorizedEmail, setUnauthorizedEmail] = useState<string | null>(null);
+  const [isAuthorizedModalOpen, setIsAuthorizedModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoadingAuth(false);
-      if (currentUser) {
-        // Run database seeding if collections are empty
-        seedDatabaseIfEmpty();
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser && currentUser.email) {
+        setLoadingAuth(true);
+        const authorized = await isEmailAuthorized(currentUser.email);
+        if (authorized) {
+          setUser(currentUser);
+          setUnauthorizedEmail(null);
+          seedDatabaseIfEmpty();
+        } else {
+          setUnauthorizedEmail(currentUser.email);
+          setUser(null);
+          await logout();
+        }
+        setLoadingAuth(false);
+      } else {
+        setUser(null);
+        setLoadingAuth(false);
       }
     });
     return () => unsubscribe();
@@ -114,10 +131,26 @@ export default function App() {
             Faça login com sua conta autorizada para gerenciar cultivos, estoque, canteiros, colheitas e rastreabilidade da Geranium Orgânicos.
           </p>
 
+          {unauthorizedEmail && (
+            <div className="w-full mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-left space-y-2 animate-fade-in">
+              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm">
+                <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
+                Acesso Não Autorizado
+              </div>
+              <p className="text-xs text-rose-900 leading-relaxed font-medium">
+                O e-mail <strong className="font-extrabold text-rose-950 underline">{unauthorizedEmail}</strong> não possui autorização de acesso ao sistema.
+              </p>
+              <p className="text-[11px] text-rose-700">
+                Por favor, solicite a inclusão do seu e-mail ao administrador do sistema.
+              </p>
+            </div>
+          )}
+
           <button
             onClick={async () => {
               try {
                 setIsSigningIn(true);
+                setUnauthorizedEmail(null);
                 const result = await googleSignIn();
                 if (result) {
                   addNotification(`Bem-vindo, ${result.user.displayName}!`, "success");
@@ -130,7 +163,7 @@ export default function App() {
               }
             }}
             disabled={isSigningIn}
-            className="w-full mt-8 flex items-center justify-center gap-3 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md hover:shadow-lg transition duration-150 disabled:opacity-50 cursor-pointer"
+            className="w-full mt-6 flex items-center justify-center gap-3 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md hover:shadow-lg transition duration-150 disabled:opacity-50 cursor-pointer"
           >
             {isSigningIn ? (
               <>
@@ -147,7 +180,7 @@ export default function App() {
                   <path fill="#EA4335" d="M7.085 13.1c-.17-.5-.27-1.04-.27-1.6s.1-1.1.27-1.6l-3.21-.23-.62.53a11.96 11.96 0 000 10.1l3.83-.4c.1-.2 0-.2-.1-.8z" />
                   <path fill="#FBBC05" d="M12 7.27c1.27 0 2.42.44 3.32 1.3l2.84-2.84c-1.72-1.6-3.97-2.58-6.16-2.58C8.59 3.15 5.62 5 4.18 7.88l3.44 2.66c.68-2.05 2.58-3.27 4.83-3.27z" />
                 </svg>
-                Acessar com Conta Google
+                {unauthorizedEmail ? "Tentar outro E-mail Google" : "Acessar com Conta Google"}
               </>
             )}
           </button>
@@ -248,13 +281,23 @@ export default function App() {
             </div>
           </div>
 
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50/30 hover:border-rose-100 transition duration-150 cursor-pointer"
-          >
-            <LogOut className="w-4 h-4" />
-            Sair da Conta
-          </button>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setIsAuthorizedModalOpen(true)}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 hover:border-emerald-200 transition duration-150 cursor-pointer"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              E-mails Autorizados
+            </button>
+
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50/30 hover:border-rose-100 transition duration-150 cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+              Sair da Conta
+            </button>
+          </div>
 
           <div className="text-center text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1 space-y-0.5">
             <div>Geranium Orgânicos v2.2</div>
@@ -335,13 +378,26 @@ export default function App() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleLogout}
-                    className="mx-4 flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50/30 hover:border-rose-100 transition duration-150 cursor-pointer"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Sair da Conta
-                  </button>
+                  <div className="flex flex-col gap-2 px-4">
+                    <button
+                      onClick={() => {
+                        setIsAuthorizedModalOpen(true);
+                        setIsMobileMenuOpen(false);
+                      }}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:text-emerald-700 hover:bg-emerald-50 transition duration-150 cursor-pointer"
+                    >
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                      E-mails Autorizados
+                    </button>
+
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center justify-center gap-2 px-4 py-2.5 border border-slate-200 rounded-xl text-xs font-semibold text-slate-500 hover:text-rose-600 hover:bg-rose-50/30 hover:border-rose-100 transition duration-150 cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sair da Conta
+                    </button>
+                  </div>
                 </div>
               </div>
             </motion.div>
@@ -400,6 +456,14 @@ export default function App() {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Authorized Emails Modal */}
+      <AuthorizedEmailsModal
+        isOpen={isAuthorizedModalOpen}
+        onClose={() => setIsAuthorizedModalOpen(false)}
+        currentUserEmail={user?.email || null}
+        onNotify={addNotification}
+      />
 
     </div>
   );
