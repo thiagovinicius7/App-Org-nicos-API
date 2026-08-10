@@ -5,18 +5,12 @@ import firebaseConfig from "../../firebase-applet-config.json";
 
 const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with the database ID from the config if present,
-// and force long polling + memory cache to avoid iframe sandbox connection issues
-const dbId = (firebaseConfig as any).firestoreDatabaseId;
-export const db = dbId
-  ? initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      localCache: memoryLocalCache(),
-    }, dbId)
-  : initializeFirestore(app, {
-      experimentalForceLongPolling: true,
-      localCache: memoryLocalCache(),
-    });
+// Initialize Firestore with the explicit database ID
+const dbId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-geraniumorgnicos-ad2fe72c-1e2c-497d-96f9-642f8693882f";
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  localCache: memoryLocalCache(),
+}, dbId);
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
