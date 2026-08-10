@@ -196,6 +196,26 @@ export default function Crops({ onNotify }: CropsProps) {
     }
   };
 
+  const PRESET_UNITS = ["kg", "UN", "MÇ", "BJ", "PCT", "CX", "g", "dz"];
+
+  const handleInlineUnitChange = async (crop: Crop, newUnit: string) => {
+    if (!crop.id) return;
+    const trimmed = newUnit.trim();
+    if (!trimmed) return;
+
+    // Optimistic update
+    setCrops(prev => prev.map(c => c.id === crop.id ? { ...c, unidadeColheita: trimmed } : c));
+
+    try {
+      await updateDoc(doc(db, "crops", crop.id), { unidadeColheita: trimmed });
+      onNotify(`Unidade de "${crop.nome}" alterada para "${trimmed}".`, "success");
+    } catch (err) {
+      console.error("Error updating unit inline:", err);
+      onNotify("Erro ao atualizar unidade de colheita.", "error");
+      fetchCrops();
+    }
+  };
+
   const openNewForm = () => {
     setSelectedCrop(null);
     setNome("");
@@ -375,9 +395,40 @@ export default function Crops({ onNotify }: CropsProps) {
                           <td className="p-4 font-bold text-slate-800">{c.nome}</td>
                           <td className="p-4 text-slate-500 italic font-serif">{c.cientifico || "—"}</td>
                           <td className="p-4 text-center">
-                            <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold text-xs rounded-lg border border-emerald-200/60">
-                              {c.unidadeColheita || "kg"}
-                            </span>
+                            <div className="inline-block relative">
+                              <select
+                                value={PRESET_UNITS.includes(c.unidadeColheita || "kg") ? (c.unidadeColheita || "kg") : (c.unidadeColheita || "kg")}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  if (val === "__CUSTOM__") {
+                                    const customVal = window.prompt(`Digite a nova unidade de colheita para "${c.nome}":`, c.unidadeColheita || "");
+                                    if (customVal && customVal.trim()) {
+                                      handleInlineUnitChange(c, customVal.trim());
+                                    }
+                                  } else {
+                                    handleInlineUnitChange(c, val);
+                                  }
+                                }}
+                                className="appearance-none font-extrabold text-xs px-3 py-1.5 pr-7 bg-emerald-50 hover:bg-emerald-100/80 text-emerald-800 rounded-xl border border-emerald-200/80 focus:border-emerald-500 focus:bg-white focus:ring-2 focus:ring-emerald-200/50 outline-none cursor-pointer transition-all shadow-2xs font-mono"
+                                title="Clique para alterar a unidade de colheita desta cultura diretamente"
+                              >
+                                <option value="kg">kg (Quilograma)</option>
+                                <option value="UN">UN (Unidade)</option>
+                                <option value="MÇ">MÇ (Maço)</option>
+                                <option value="BJ">BJ (Bandeja)</option>
+                                <option value="PCT">PCT (Pacote)</option>
+                                <option value="CX">CX (Caixa)</option>
+                                <option value="g">g (Grama)</option>
+                                <option value="dz">dz (Dúzia)</option>
+                                {c.unidadeColheita && !PRESET_UNITS.includes(c.unidadeColheita) && (
+                                  <option value={c.unidadeColheita}>{c.unidadeColheita} (Personalizada)</option>
+                                )}
+                                <option value="__CUSTOM__">✏️ Outra unidade...</option>
+                              </select>
+                              <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-emerald-600 text-[10px] font-bold">
+                                ▾
+                              </div>
+                            </div>
                           </td>
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.dias} dias</td>
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.duracao} dias</td>
