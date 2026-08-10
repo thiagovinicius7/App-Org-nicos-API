@@ -53,26 +53,61 @@ export default function App() {
   const [isAuthorizedModalOpen, setIsAuthorizedModalOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser && currentUser.email) {
-        setLoadingAuth(true);
-        const authorized = await isEmailAuthorized(currentUser.email);
-        if (authorized) {
-          setUser(currentUser);
-          setUnauthorizedEmail(null);
-          seedDatabaseIfEmpty();
-        } else {
-          setUnauthorizedEmail(currentUser.email);
-          setUser(null);
-          await logout();
-        }
-        setLoadingAuth(false);
-      } else {
-        setUser(null);
+    let isSubscribed = true;
+
+    // Safety fallback timer: guarantee loadingAuth turns off within 2.5 seconds
+    const fallbackTimer = setTimeout(() => {
+      if (isSubscribed && loadingAuth) {
+        console.warn("Auth check timed out, releasing loading state.");
         setLoadingAuth(false);
       }
+    }, 2500);
+
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      clearTimeout(fallbackTimer);
+      if (!isSubscribed) return;
+
+      if (currentUser && currentUser.email) {
+        setLoadingAuth(true);
+        try {
+          const authorized = await isEmailAuthorized(currentUser.email);
+          if (isSubscribed) {
+            if (authorized) {
+              setUser(currentUser);
+              setUnauthorizedEmail(null);
+              seedDatabaseIfEmpty().catch(console.error);
+            } else {
+              setUnauthorizedEmail(currentUser.email);
+              setUser(null);
+              await logout().catch(console.error);
+            }
+          }
+        } catch (err) {
+          console.error("Auth check error:", err);
+          if (isSubscribed) {
+            if (currentUser.email.trim().toLowerCase() === "thiagovinicius7@gmail.com") {
+              setUser(currentUser);
+              setUnauthorizedEmail(null);
+            } else {
+              setUser(null);
+            }
+          }
+        } finally {
+          if (isSubscribed) setLoadingAuth(false);
+        }
+      } else {
+        if (isSubscribed) {
+          setUser(null);
+          setLoadingAuth(false);
+        }
+      }
     });
-    return () => unsubscribe();
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(fallbackTimer);
+      unsubscribe();
+    };
   }, []);
 
   const addNotification = (msg: string, type: "success" | "error" | "info" = "info") => {

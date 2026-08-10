@@ -18,9 +18,21 @@ export async function isEmailAuthorized(email: string): Promise<boolean> {
   if (!email) return false;
   const cleanEmail = email.trim().toLowerCase();
 
+  // Instant bypass for main administrator
+  if (cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+    return true;
+  }
+
   try {
     const colRef = collection(db, "authorized_emails");
-    const snapshot = await getDocs(colRef);
+    
+    // Fail-safe 3s timeout for Firestore call
+    const fetchPromise = getDocs(colRef);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout ao verificar autorização no banco")), 3000)
+    );
+
+    const snapshot = (await Promise.race([fetchPromise, timeoutPromise])) as any;
 
     if (snapshot.empty) {
       console.log("authorized_emails collection empty. Seeding initial authorized emails...");
@@ -41,21 +53,10 @@ export async function isEmailAuthorized(email: string): Promise<boolean> {
     const docs = snapshot.docs.map(d => d.data());
     const isAllowed = docs.some(d => d.email && d.email.trim().toLowerCase() === cleanEmail);
 
-    // Always ensure default admin email remains allowed if needed
-    if (!isAllowed && cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
-      const docId = cleanEmail.replace(/[^a-zA-Z0-9_.]/g, "_");
-      await setDoc(doc(db, "authorized_emails", docId), {
-        email: cleanEmail,
-        addedBy: "Sistema (Admin Principal)",
-        addedAt: new Date().toISOString()
-      });
-      return true;
-    }
-
     return isAllowed;
   } catch (err) {
     console.error("Erro ao verificar e-mail autorizado:", err);
-    // In case of Firestore read issues, allow owner/admin email as fallback
+    // In case of Firestore read issues or timeouts, allow owner/admin email
     if (cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) return true;
     return false;
   }
