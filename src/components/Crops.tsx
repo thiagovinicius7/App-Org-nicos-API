@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Crop } from "../types";
-import { Plus, Edit2, Search, ArrowLeft, Loader2, Leaf, AlertCircle } from "lucide-react";
+import { Plus, Edit2, Search, ArrowLeft, Loader2, Leaf, AlertCircle, Trash2, GitMerge, CheckCircle2, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface CropsProps {
@@ -24,6 +24,15 @@ export default function Crops({ onNotify }: CropsProps) {
   const [unidadeColheita, setUnidadeColheita] = useState<string>("kg");
   const [saving, setSaving] = useState<boolean>(false);
 
+  // Deduplication state
+  const [isDeduplicating, setIsDeduplicating] = useState<boolean>(false);
+  const [showDeduplicateModal, setShowDeduplicateModal] = useState<boolean>(false);
+  const [duplicateGroups, setDuplicateGroups] = useState<{
+    key: string;
+    primary: Crop;
+    duplicates: Crop[];
+  }[]>([]);
+
   useEffect(() => {
     fetchCrops();
   }, []);
@@ -42,6 +51,148 @@ export default function Crops({ onNotify }: CropsProps) {
       onNotify("Erro ao buscar culturas.", "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Computed list of duplicate groups
+  const duplicatesSummary = useMemo(() => {
+    const map = new Map<string, Crop[]>();
+    for (const c of crops) {
+      const key = c.nome.trim().toLowerCase();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    const groups: { key: string; primary: Crop; duplicates: Crop[] }[] = [];
+    map.forEach((list, key) => {
+      if (list.length > 1) {
+        // Sort by field completeness
+        const sorted = [...list].sort((a, b) => {
+          let scoreA = (a.cientifico ? 2 : 0) + (a.dias > 0 ? 1 : 0) + (a.duracao > 0 ? 1 : 0) + (a.unidadeColheita && a.unidadeColheita !== 'kg' ? 1 : 0);
+          let scoreB = (b.cientifico ? 2 : 0) + (b.dias > 0 ? 1 : 0) + (b.duracao > 0 ? 1 : 0) + (b.unidadeColheita && b.unidadeColheita !== 'kg' ? 1 : 0);
+          return scoreB - scoreA;
+        });
+        groups.push({ key, primary: sorted[0], duplicates: sorted.slice(1) });
+      }
+    });
+    return groups;
+  }, [crops]);
+
+  const handleOpenDeduplicateModal = () => {
+    setDuplicateGroups(duplicatesSummary);
+    setShowDeduplicateModal(true);
+  };
+
+  const handleMergeDuplicates = async () => {
+    if (duplicateGroups.length === 0) return;
+    try {
+      setIsDeduplicating(true);
+      onNotify("Iniciando unificação inteligente das culturas...", "info");
+
+      let deletedCount = 0;
+      let updatedRefsCount = 0;
+
+      // Fetch all dependent records to update references
+      const [plantingsSnap, purchasesSnap, harvestsSnap] = await Promise.all([
+        getDocs(collection(db, "plantings")),
+        getDocs(collection(db, "purchases")),
+        getDocs(collection(db, "harvests")),
+      ]);
+
+      for (const group of duplicateGroups) {
+        const { primary, duplicates } = group;
+
+        // Consolidate attributes
+        let bestCientifico = primary.cientifico || "";
+        let bestDias = primary.dias || 0;
+        let bestDuracao = primary.duracao || 0;
+        let bestUnidade = primary.unidadeColheita || "kg";
+
+        for (const dup of duplicates) {
+          if (!bestCientifico && dup.cientifico) bestCientifico = dup.cientifico;
+          if (!bestDias && dup.dias) bestDias = dup.dias;
+          if (!bestDuracao && dup.duracao) bestDuracao = dup.duracao;
+          if ((!bestUnidade || bestUnidade === "kg") && dup.unidadeColheita && dup.unidadeColheita !== "kg") {
+            bestUnidade = dup.unidadeColheita;
+          }
+        }
+
+        // 1. Update primary crop doc
+        if (primary.id) {
+          await updateDoc(doc(db, "crops", primary.id), {
+            nome: primary.nome.trim(),
+            cientifico: bestCientifico,
+            dias: bestDias,
+            duracao: bestDuracao,
+            unidadeColheita: bestUnidade,
+          });
+        }
+
+        // 2. Delete duplicate crop docs
+        for (const dup of duplicates) {
+          if (dup.id) {
+            await deleteDoc(doc(db, "crops", dup.id));
+            deletedCount++;
+          }
+        }
+
+        // 3. Update references in plantings, purchases, harvests
+        const canonicalName = primary.nome.trim();
+        const allVariantNames = new Set([primary.nome, ...duplicates.map(d => d.nome)].map(n => n.trim().toLowerCase()));
+
+        for (const pDoc of plantingsSnap.docs) {
+          const pData = pDoc.data();
+          if (pData.cultura && allVariantNames.has(pData.cultura.trim().toLowerCase())) {
+            if (pData.cultura !== canonicalName) {
+              await updateDoc(doc(db, "plantings", pDoc.id), { cultura: canonicalName });
+              updatedRefsCount++;
+            }
+          }
+        }
+
+        for (const purDoc of purchasesSnap.docs) {
+          const purData = purDoc.data();
+          if (purData.cultura && allVariantNames.has(purData.cultura.trim().toLowerCase())) {
+            if (purData.cultura !== canonicalName) {
+              await updateDoc(doc(db, "purchases", purDoc.id), { cultura: canonicalName });
+              updatedRefsCount++;
+            }
+          }
+        }
+
+        for (const hDoc of harvestsSnap.docs) {
+          const hData = hDoc.data();
+          if (hData.cultura && allVariantNames.has(hData.cultura.trim().toLowerCase())) {
+            if (hData.cultura !== canonicalName) {
+              await updateDoc(doc(db, "harvests", hDoc.id), { cultura: canonicalName });
+              updatedRefsCount++;
+            }
+          }
+        }
+      }
+
+      onNotify(`Unificação concluída com sucesso! ${deletedCount} duplicatas unificadas e ${updatedRefsCount} lançamentos vinculados padronizados sem perda de dados.`, "success");
+      setShowDeduplicateModal(false);
+      fetchCrops();
+    } catch (err) {
+      console.error("Erro ao unificar culturas:", err);
+      onNotify("Erro ao unificar culturas.", "error");
+    } finally {
+      setIsDeduplicating(false);
+    }
+  };
+
+  const handleDeleteSingleCrop = async (crop: Crop) => {
+    if (!crop.id) return;
+    if (!window.confirm(`Tem certeza que deseja excluir a cultura "${crop.nome}"?\n\nNota: Os dados das colheitas e plantios já realizados serão mantidos intactos.`)) {
+      return;
+    }
+    try {
+      await deleteDoc(doc(db, "crops", crop.id));
+      onNotify(`Cultura "${crop.nome}" excluída com sucesso.`, "success");
+      fetchCrops();
+    } catch (err) {
+      console.error("Erro ao excluir cultura:", err);
+      onNotify("Erro ao excluir cultura.", "error");
     }
   };
 
@@ -134,14 +285,51 @@ export default function Crops({ onNotify }: CropsProps) {
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Culturas Cadastradas</h1>
                 <p className="text-slate-500 text-sm mt-1">Gerencie a lista de plantas do seu banco de dados orgânicos.</p>
               </div>
-              <button
-                onClick={openNewForm}
-                className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-xs transition duration-150 self-stretch sm:self-auto justify-center cursor-pointer"
-              >
-                <Plus className="w-5 h-5" />
-                Nova Cultura
-              </button>
+              <div className="flex items-center gap-2.5 self-stretch sm:self-auto">
+                <button
+                  onClick={handleOpenDeduplicateModal}
+                  className={`flex items-center justify-center gap-2 font-semibold px-4 py-2.5 rounded-xl shadow-xs transition duration-150 cursor-pointer border ${
+                    duplicatesSummary.length > 0
+                      ? "bg-amber-500 hover:bg-amber-600 text-white border-amber-500 animate-pulse"
+                      : "bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200"
+                  }`}
+                  title="Verificar e unificar culturas com nomes duplicados"
+                >
+                  <GitMerge className="w-4 h-4" />
+                  Unificar Duplicadas {duplicatesSummary.length > 0 && `(${duplicatesSummary.length})`}
+                </button>
+                <button
+                  onClick={openNewForm}
+                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-4 py-2.5 rounded-xl shadow-xs transition duration-150 justify-center cursor-pointer"
+                >
+                  <Plus className="w-5 h-5" />
+                  Nova Cultura
+                </button>
+              </div>
             </div>
+
+            {/* Duplicates Alert Banner */}
+            {duplicatesSummary.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-900">
+                      Cultura(s) duplicada(s) detectada(s) no banco de dados!
+                    </h4>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      Foram encontrados {duplicatesSummary.length} grupos de nomes repetidos. Você pode unificá-los com 1 clique mantendo todos os históricos de plantios e colheitas intactos.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleOpenDeduplicateModal}
+                  className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition cursor-pointer shrink-0"
+                >
+                  Unificar Agora
+                </button>
+              </div>
+            )}
 
             {/* Filter Search */}
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
@@ -194,13 +382,22 @@ export default function Crops({ onNotify }: CropsProps) {
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.dias} dias</td>
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.duracao} dias</td>
                           <td className="p-4 text-right">
-                            <button
-                              onClick={() => openEditForm(c)}
-                              className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs transition duration-150 border border-slate-200/50 cursor-pointer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                              Editar
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => openEditForm(c)}
+                                className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-3 py-1.5 rounded-lg text-xs transition duration-150 border border-slate-200/50 cursor-pointer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                                Editar
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSingleCrop(c)}
+                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                                title="Excluir cultura"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -367,6 +564,120 @@ export default function Crops({ onNotify }: CropsProps) {
               </form>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Deduplication Modal */}
+      <AnimatePresence>
+        {showDeduplicateModal && (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-xl border border-slate-200 space-y-5 max-h-[90vh] flex flex-col"
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-50 text-amber-600 rounded-2xl border border-amber-200/60">
+                    <GitMerge className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Unificar Culturas Duplicadas</h3>
+                    <p className="text-xs text-slate-500">Unificação inteligente e consolidação de dados sem perda de histórico.</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDeduplicateModal(false)}
+                  disabled={isDeduplicating}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="overflow-y-auto space-y-4 pr-1 flex-1 text-xs">
+                {duplicateGroups.length === 0 ? (
+                  <div className="py-8 text-center space-y-2">
+                    <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto" />
+                    <p className="font-bold text-slate-800 text-sm">Nenhuma cultura duplicada encontrada!</p>
+                    <p className="text-slate-500 max-w-xs mx-auto">
+                      Todas as culturas no catálogo possuem nomes únicos e padronizados.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-2xl space-y-1 text-emerald-900">
+                      <p className="font-bold flex items-center gap-1.5 text-emerald-800">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        Garantia de Preservação de Dados
+                      </p>
+                      <p className="text-[11px] text-emerald-700 leading-relaxed">
+                        A unificação combina os melhores dados botânicos de cada duplicata e atualiza automaticamente todos os lançamentos históricos de <strong>Plantios, Colheitas e Compras</strong> para o nome oficial padronizado. Nenhum histórico será apagado.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <p className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
+                        Grupos identificados ({duplicateGroups.length}):
+                      </p>
+                      <div className="space-y-2.5">
+                        {duplicateGroups.map((group, idx) => (
+                          <div key={idx} className="bg-slate-50 border border-slate-200 p-3 rounded-2xl space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-800 text-sm capitalize">{group.primary.nome}</span>
+                              <span className="px-2 py-0.5 bg-amber-100 text-amber-800 font-extrabold rounded-md text-[10px]">
+                                {group.duplicates.length + 1} registros
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-600 space-y-1 bg-white p-2.5 rounded-xl border border-slate-150 font-mono">
+                              <div>
+                                <span className="font-bold text-emerald-700 font-sans">Oficial:</span> {group.primary.nome} {group.primary.cientifico ? `(${group.primary.cientifico})` : ""} • {group.primary.dias || 0}d colheita • {group.primary.unidadeColheita || "kg"}
+                              </div>
+                              <div className="text-slate-400 text-[10px]">
+                                <span className="font-bold text-amber-700 font-sans">Variantes a consolidar:</span> {group.duplicates.map(d => d.nome).join(", ")}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="border-t border-slate-100 pt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowDeduplicateModal(false)}
+                  disabled={isDeduplicating}
+                  className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 px-4 rounded-xl text-xs transition cursor-pointer border border-slate-200"
+                >
+                  Cancelar
+                </button>
+                {duplicateGroups.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleMergeDuplicates}
+                    disabled={isDeduplicating}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-xs shadow-xs transition cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isDeduplicating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Unificando...
+                      </>
+                    ) : (
+                      <>
+                        <GitMerge className="w-4 h-4" />
+                        Unificar {duplicateGroups.length} Grupos Sem Perder Dados
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
     </div>
