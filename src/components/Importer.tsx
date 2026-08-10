@@ -602,10 +602,11 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
       columns: [
         { name: "nome", req: true, desc: "Nome comum da cultura (ex: Alface Crespa Verde)" },
         { name: "cientifico", req: false, desc: "Nome científico (ex: Lactuca sativa)" },
+        { name: "unidadeColheita", req: false, desc: "Unidade de colheita (ex: kg, UN, MÇ, BJ, PCT, CX)" },
         { name: "dias", req: false, desc: "Dias estimados do plantio à colheita (ex: 35)" },
         { name: "duracao", req: false, desc: "Período colhendo em dias (ex: 30)" },
       ],
-      sample: "nome;cientifico;dias;duracao\nMorango Silvestre;Fragaria vesca;90;60\nTomate Cereja;Solanum lycopersicum;80;45\nEspanfre Orgânico;Spinacia oleracea;45;20"
+      sample: "nome;cientifico;unidadeColheita;dias;duracao\nMorango Silvestre;Fragaria vesca;kg;90;60\nTomate Cereja;Solanum lycopersicum;kg;80;45\nEspanfre Orgânico;Spinacia oleracea;MÇ;45;20"
     },
     purchases: {
       columns: [
@@ -814,6 +815,9 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
       record.nome = record.nome ? record.nome.trim() : "Cultura Sem Nome";
       // Cientifico
       record.cientifico = record.cientifico ? record.cientifico.trim() : "";
+      // Unidade de Colheita
+      const unidRaw = record.unidadecolheita || record.unidade_colheita || record.unidadeColheita || record.unidade;
+      record.unidadeColheita = unidRaw ? unidRaw.trim() : "kg";
       // Dias
       const diasNum = parseInt(record.dias);
       record.dias = (isNaN(diasNum) || diasNum < 0) ? 0 : diasNum;

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Planting, Purchase, Harvest } from "../types";
+import { Planting, Purchase, Harvest, Crop } from "../types";
 import { Search, Loader2, Award, Printer, MapPin, Calendar, HelpCircle, FileText, CheckCircle2 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import GeraniumLogo from "./GeraniumLogo";
@@ -14,6 +14,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  const [crops, setCrops] = useState<Crop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   
   const [search, setSearch] = useState<string>("");
@@ -35,12 +36,21 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
 
       const harvestsSnapshot = await getDocs(collection(db, "harvests"));
       setHarvests(harvestsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Harvest)));
+
+      const cropsSnapshot = await getDocs(collection(db, "crops"));
+      setCrops(cropsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Crop)));
     } catch (err) {
       console.error("Error fetching traceability logs:", err);
       onNotify("Erro ao carregar dados de rastreabilidade.", "error");
     } finally {
       setLoading(false);
     }
+  };
+
+  const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
+    if (!culturaName) return fallback || "kg";
+    const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
+    return found?.unidadeColheita || fallback || "kg";
   };
 
   const normalizeCompare = (s1: string, s2: string): boolean => {
@@ -313,7 +323,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Total Colhido Saudável</span>
-                        <p className="font-extrabold text-emerald-700 text-sm">{selectedPlanting.totalColhido} {selectedPlanting.unidade}</p>
+                        <p className="font-extrabold text-emerald-700 text-sm">{selectedPlanting.totalColhido} {getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)}</p>
                       </div>
                       <div className="space-y-0.5">
                         <span className="text-slate-400 font-bold uppercase text-[9px]">Perdas Finais Campo</span>
@@ -349,7 +359,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
                             <tr className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                               <th className="p-2.5">Data da Colheita</th>
                               <th className="p-2.5">Grupo Sessão</th>
-                              <th className="p-2.5 text-right">Qtd Colhida ({selectedPlanting.unidade})</th>
+                              <th className="p-2.5 text-right">Qtd Colhida ({getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)})</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 font-mono font-bold">
@@ -463,7 +473,7 @@ export default function Traceability({ onNotify }: TraceabilityProps) {
             <div className="grid grid-cols-4 gap-4 text-xs font-sans">
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Total Colhido</span>
-                <p className="font-bold">{selectedPlanting.totalColhido} {selectedPlanting.unidade}</p>
+                <p className="font-bold">{selectedPlanting.totalColhido} {getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)}</p>
               </div>
               <div>
                 <span className="text-gray-500 uppercase text-[8px] block">Perdas Campo</span>

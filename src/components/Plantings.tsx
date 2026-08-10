@@ -28,6 +28,12 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   const [crops, setCrops] = useState<Crop[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
+    if (!culturaName) return fallback || "kg";
+    const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
+    return found?.unidadeColheita || fallback || "kg";
+  };
   
   const [viewMode, setViewMode] = useState<"actives" | "finalized" | "create">("actives");
   
@@ -569,7 +575,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                                   <td className="p-4 text-center text-slate-500 text-xs font-medium">{formatToBrazDate(p.data)}</td>
                                   <td className="p-4 text-center text-xs font-bold text-indigo-600">{formatToBrazDate(p.previsao) || "—"}</td>
                                   <td className="p-4 text-center text-xs">
-                                    <div className="font-bold text-slate-800">{p.totalColhido} {p.unidade}</div>
+                                    <div className="font-bold text-slate-800">{p.totalColhido} {getCropHarvestUnit(p.cultura, p.unidade)}</div>
                                     <div className="text-[10px] text-slate-400 font-medium">de {p.quantidade} {p.unidade} ({pct})</div>
                                   </td>
                                   <td className="p-4 text-right">
@@ -696,7 +702,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           <td className="p-4 text-center font-semibold text-slate-700">{p.talhao}</td>
                           <td className="p-4 text-center text-xs font-medium">{formatToBrazDate(p.data)}</td>
                           <td className="p-4 text-center text-xs font-bold text-rose-600">{formatToBrazDate(p.dataFim || "")}</td>
-                          <td className="p-4 text-center text-xs font-bold text-emerald-600">{p.totalColhido} {p.unidade}</td>
+                          <td className="p-4 text-center text-xs font-bold text-emerald-600">{p.totalColhido} {getCropHarvestUnit(p.cultura, p.unidade)}</td>
                           <td className="p-4 text-center text-xs font-bold text-red-600">{p.perdas || 0}</td>
                           <td className="p-4 text-right">
                             <button
@@ -1067,7 +1073,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               {/* Harvest block */}
               <div className="bg-indigo-50/35 p-4 rounded-xl border border-indigo-200/30 space-y-3">
                 <h4 className="text-xs font-bold text-indigo-800 uppercase tracking-widest">🍓 Produção Acumulada e Colheitas</h4>
-                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Total Colhido:</span> {selectedPlanting.totalColhido} {selectedPlanting.unidade}</p>
+                <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Total Colhido:</span> {selectedPlanting.totalColhido} {getCropHarvestUnit(selectedPlanting.cultura, selectedPlanting.unidade)}</p>
                 <p className="text-sm text-slate-700"><span className="font-bold text-slate-500">Status atual:</span> <span className="font-bold text-indigo-700">{selectedPlanting.status}</span></p>
                 {selectedPlanting.status === "Finalizado" && (
                   <>

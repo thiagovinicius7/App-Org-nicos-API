@@ -4,6 +4,7 @@ export interface Crop {
   cientifico: string;
   dias: number;
   duracao: number;
+  unidadeColheita?: string; // e.g. "kg", "UN", "MÇ", "BJ", "PCT", "CX"
 }
 
 export interface Purchase {
@@ -49,6 +50,7 @@ export interface Harvest {
   cultura: string;
   talhao: string;
   qtd: number;
+  unidade?: string;
 }
 
 export interface WeatherDay {

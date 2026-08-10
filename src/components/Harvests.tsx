@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
-import { Planting, Harvest } from "../types";
+import { Planting, Harvest, Crop } from "../types";
 import { Calendar, AlertCircle, Play, Save, ChevronRight, ChevronDown, Check, Loader2, ArrowLeftRight, Trash2, Edit2, Clock, X } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -12,6 +12,7 @@ interface HarvestsProps {
 export default function Harvests({ onNotify }: HarvestsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  const [crops, setCrops] = useState<Crop[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [viewMode, setViewMode] = useState<"daily" | "history">("daily");
 
@@ -75,6 +76,11 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       const harvestsSnapshot = await getDocs(collection(db, "harvests"));
       const harvestsList = harvestsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Harvest));
       setHarvests(harvestsList);
+
+      // Fetch crops for unit lookup
+      const cropsSnapshot = await getDocs(collection(db, "crops"));
+      const cropsList = cropsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Crop));
+      setCrops(cropsList);
     } catch (err) {
       console.error("Error fetching harvests data:", err);
       onNotify("Erro ao buscar dados de colheita.", "error");
@@ -83,6 +89,12 @@ export default function Harvests({ onNotify }: HarvestsProps) {
         setLoading(false);
       }
     }
+  };
+
+  const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {
+    if (!culturaName) return fallback || "kg";
+    const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
+    return found?.unidadeColheita || fallback || "kg";
   };
 
   const getCalculatedStatus = (p: Planting) => {
@@ -694,20 +706,30 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                     </button>
                                     <span className="text-[10px] text-slate-400 font-medium block mt-1">Prev: {p.previsao ? p.previsao.split("-").reverse().slice(0, 2).join("/") : "—"}</span>
                                   </td>
-                                  <td className="p-4 text-center font-mono text-xs">
-                                    <span className="font-bold text-slate-800">{p.totalColhido}</span> / {p.quantidade} {p.unidade}
+                                  <td className="p-4 text-center text-xs">
+                                    <div className="font-extrabold text-emerald-700 font-mono text-sm">
+                                      {p.totalColhido} {getCropHarvestUnit(p.cultura)}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-sans">
+                                      Plantado: {p.quantidade} {p.unidade}
+                                    </div>
                                   </td>
                                   <td className="p-4 text-right">
                                     {modoColheitaAtivo ? (
                                       isColhendo ? (
                                         <div className="flex items-center gap-2 justify-end">
-                                          <input
-                                            type="number"
-                                            placeholder="Qtd"
-                                            value={qtyVal}
-                                            onChange={(e) => setValoresSessao(prev => ({ ...prev, [p.id!]: e.target.value }))}
-                                            className="w-20 px-2 py-1.5 text-center font-bold border border-slate-200 rounded-lg text-xs outline-none transition font-mono bg-white focus:border-rose-500 text-slate-800"
-                                          />
+                                          <div className="relative flex items-center">
+                                            <input
+                                              type="number"
+                                              placeholder="Qtd"
+                                              value={qtyVal}
+                                              onChange={(e) => setValoresSessao(prev => ({ ...prev, [p.id!]: e.target.value }))}
+                                              className="w-24 px-2 py-1.5 pl-2 pr-8 text-center font-bold border border-slate-200 rounded-lg text-xs outline-none transition font-mono bg-white focus:border-rose-500 text-slate-800"
+                                            />
+                                            <span className="absolute right-2 text-[10px] font-extrabold text-slate-400 pointer-events-none">
+                                              {getCropHarvestUnit(p.cultura)}
+                                            </span>
+                                          </div>
                                           <button
                                             onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                             className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-slate-200"
@@ -820,7 +842,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                           <span className="text-[10px] text-slate-400 font-bold">Talhão: {log.talhao} • Plantio: {log.idPlantio}</span>
                                         </div>
                                         <div className="flex items-center gap-3">
-                                          <span className="font-bold text-slate-900 font-mono text-sm">{log.qtd}</span>
+                                          <span className="font-bold text-slate-900 font-mono text-sm">{log.qtd} {getCropHarvestUnit(log.cultura)}</span>
                                           <button
                                             onClick={() => handleOpenEditLog(log)}
                                             className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition cursor-pointer"
@@ -887,7 +909,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                     {historicLogs.map((log, idx) => (
                       <tr key={idx}>
                         <td className="py-2 text-slate-600">{log.data.split("-").reverse().join("/")}</td>
-                        <td className="py-2 text-right text-emerald-600">{log.qtd}</td>
+                        <td className="py-2 text-right text-emerald-600">{log.qtd} {getCropHarvestUnit(selectedPlantingCultura)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -926,7 +948,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                 Cultura: <span className="font-bold text-slate-800">{logToEdit.cultura}</span> • Talhão: <span className="font-bold text-slate-800">{logToEdit.talhao}</span>
               </p>
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">Nova Quantidade</label>
+                <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
+                  Nova Quantidade ({getCropHarvestUnit(logToEdit.cultura)})
+                </label>
                 <input
                   type="number"
                   required

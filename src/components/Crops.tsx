@@ -21,6 +21,7 @@ export default function Crops({ onNotify }: CropsProps) {
   const [cientifico, setCientifico] = useState<string>("");
   const [dias, setDias] = useState<number>(0);
   const [duracao, setDuracao] = useState<number>(0);
+  const [unidadeColheita, setUnidadeColheita] = useState<string>("kg");
   const [saving, setSaving] = useState<boolean>(false);
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export default function Crops({ onNotify }: CropsProps) {
     setCientifico("");
     setDias(0);
     setDuracao(0);
+    setUnidadeColheita("kg");
     setIsFormOpen(true);
   };
 
@@ -59,6 +61,7 @@ export default function Crops({ onNotify }: CropsProps) {
     setCientifico(crop.cientifico || "");
     setDias(crop.dias);
     setDuracao(crop.duracao);
+    setUnidadeColheita(crop.unidadeColheita || "kg");
     setIsFormOpen(true);
   };
 
@@ -78,6 +81,7 @@ export default function Crops({ onNotify }: CropsProps) {
         cientifico: cientifico.trim(),
         dias: Number(dias) || 0,
         duracao: Number(duracao) || 0,
+        unidadeColheita: unidadeColheita.trim() || "kg",
       };
 
       if (selectedCrop && selectedCrop.id) {
@@ -171,6 +175,7 @@ export default function Crops({ onNotify }: CropsProps) {
                       <tr className="bg-slate-50 border-b border-slate-200">
                         <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest">Nome Popular</th>
                         <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest">Nome Científico</th>
+                        <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest text-center">Unid. Colheita</th>
                         <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest text-center">Dias para 1ª Colheita</th>
                         <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest text-center">Duração da Colheita</th>
                         <th className="p-4 font-bold text-slate-500 uppercase text-[10px] tracking-widest text-right">Ação</th>
@@ -181,6 +186,11 @@ export default function Crops({ onNotify }: CropsProps) {
                         <tr key={c.id} className="hover:bg-slate-50/55 transition">
                           <td className="p-4 font-bold text-slate-800">{c.nome}</td>
                           <td className="p-4 text-slate-500 italic font-serif">{c.cientifico || "—"}</td>
+                          <td className="p-4 text-center">
+                            <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold text-xs rounded-lg border border-emerald-200/60">
+                              {c.unidadeColheita || "kg"}
+                            </span>
+                          </td>
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.dias} dias</td>
                           <td className="p-4 text-slate-700 text-center font-mono font-medium">{c.duracao} dias</td>
                           <td className="p-4 text-right">
@@ -254,6 +264,54 @@ export default function Crops({ onNotify }: CropsProps) {
                     onChange={(e) => setCientifico(e.target.value)}
                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white text-sm text-slate-800 rounded-xl outline-none transition font-serif italic"
                   />
+                </div>
+
+                <div className="space-y-2">
+                  <label htmlFor="crop-unidade" className="block text-xs font-bold text-slate-500 uppercase tracking-widest">
+                    Unidade de Colheita Padronizada
+                  </label>
+                  <p className="text-xs text-slate-400">
+                    Selecione a unidade na qual essa cultura é colhida (ex: kg, unidade, maço, caixa). Isso será refletido automaticamente nas colheitas registradas.
+                  </p>
+                  
+                  {/* Preset unit pills */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {[
+                      { label: "kg (Quilograma)", val: "kg" },
+                      { label: "UN (Unidade)", val: "UN" },
+                      { label: "MÇ (Maço)", val: "MÇ" },
+                      { label: "BJ (Bandeja)", val: "BJ" },
+                      { label: "PCT (Pacote)", val: "PCT" },
+                      { label: "CX (Caixa)", val: "CX" },
+                      { label: "g (Grama)", val: "g" },
+                      { label: "dz (Dúzia)", val: "dz" },
+                    ].map((u) => (
+                      <button
+                        key={u.val}
+                        type="button"
+                        onClick={() => setUnidadeColheita(u.val)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border ${
+                          unidadeColheita === u.val
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                        }`}
+                      >
+                        {u.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="pt-1">
+                    <input
+                      id="crop-unidade"
+                      type="text"
+                      required
+                      placeholder="Ou digite outra unidade personalização (ex: Pote, Sacac, Atado)..."
+                      value={unidadeColheita}
+                      onChange={(e) => setUnidadeColheita(e.target.value)}
+                      className="w-full px-4 py-2 bg-slate-50 border border-slate-200 focus:border-emerald-500 focus:bg-white text-sm text-slate-800 rounded-xl outline-none font-medium transition"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
