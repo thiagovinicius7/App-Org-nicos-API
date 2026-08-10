@@ -22,8 +22,9 @@ export const db = dbId
 export const auth = getAuth(app);
 
 const provider = new GoogleAuthProvider();
-// Request Google Sheets scope
+// Request Google Sheets and Google Drive scopes
 provider.addScope("https://www.googleapis.com/auth/spreadsheets.readonly");
+provider.addScope("https://www.googleapis.com/auth/drive.file");
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
