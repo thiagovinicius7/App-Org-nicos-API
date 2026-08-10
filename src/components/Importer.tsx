@@ -109,6 +109,71 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
 
   const [confirmResetCheckbox, setConfirmResetCheckbox] = useState<boolean>(false);
   const [isResetting, setIsResetting] = useState<boolean>(false);
+  const [isDownloadingBackup, setIsDownloadingBackup] = useState<boolean>(false);
+
+  const handleDownloadSystemBackup = async () => {
+    try {
+      setIsDownloadingBackup(true);
+      onNotify("Iniciando geração do backup completo do sistema...", "info");
+
+      const collectionsToBackup = [
+        "crops",
+        "purchases",
+        "plantings",
+        "harvests",
+        "authorized_emails",
+        "metadata"
+      ];
+
+      const backupData: Record<string, any[]> = {};
+      const summary: Record<string, number> = {};
+
+      for (const colName of collectionsToBackup) {
+        try {
+          const snap = await getDocs(collection(db, colName));
+          const list = snap.docs.map(docSnap => ({
+            _firestoreDocId: docSnap.id,
+            ...docSnap.data()
+          }));
+          backupData[colName] = list;
+          summary[colName] = list.length;
+        } catch (colErr) {
+          console.error(`Erro ao buscar coleção ${colName} para backup:`, colErr);
+          backupData[colName] = [];
+          summary[colName] = 0;
+        }
+      }
+
+      const fullBackup = {
+        system: "Geranium Orgânicos",
+        version: "2.2",
+        exportedAt: new Date().toISOString(),
+        summary,
+        collections: backupData
+      };
+
+      const jsonString = JSON.stringify(fullBackup, null, 2);
+      const blob = new Blob([jsonString], { type: "application/json;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const timeStr = new Date().toTimeString().slice(0, 5).replace(":", "");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `backup_sistema_geranium_${dateStr}_${timeStr}.json`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      const totalRecords = Object.values(summary).reduce((a, b) => a + b, 0);
+      onNotify(`Backup gerado com sucesso! ${totalRecords} registros exportados em formato JSON.`, "success");
+    } catch (err) {
+      console.error("Erro ao gerar backup do sistema:", err);
+      onNotify("Erro ao gerar o backup do sistema.", "error");
+    } finally {
+      setIsDownloadingBackup(false);
+    }
+  };
 
   const handleResetDatabase = async () => {
     if (!confirmResetCheckbox) return;
@@ -1447,6 +1512,44 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
   return (
     <div className="space-y-6">
       
+      {/* System Backup Banner */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-3xl p-6 shadow-xl border border-indigo-900/40 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-indigo-600/30 text-indigo-300 rounded-2xl border border-indigo-500/30 shrink-0">
+            <Database className="w-8 h-8" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-black text-white tracking-tight">Cópia de Segurança do Sistema</h2>
+              <span className="text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full uppercase tracking-wider">
+                Completo (.JSON)
+              </span>
+            </div>
+            <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
+              Baixe um arquivo de segurança contendo todos os dados do sistema (culturas, compras, canteiros plantados, registros de colheita, e-mails autorizados e configurações).
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={handleDownloadSystemBackup}
+          disabled={isDownloadingBackup}
+          className="w-full md:w-auto shrink-0 flex items-center justify-center gap-2.5 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-extrabold text-xs rounded-xl transition cursor-pointer shadow-lg disabled:opacity-50"
+        >
+          {isDownloadingBackup ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              Gerando Cópia de Segurança...
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" />
+              Baixar Backup Completo (.JSON)
+            </>
+          )}
+        </button>
+      </div>
+
       {/* Importer Card */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         
@@ -2195,27 +2298,39 @@ export default function Importer({ onNotify }: { onNotify: (msg: string, type: "
               </label>
             </div>
 
-            <button
-              onClick={handleResetDatabase}
-              disabled={!confirmResetCheckbox || isResetting}
-              className={`w-full md:w-auto px-5 py-3 rounded-xl font-bold text-xs text-white shadow-xs transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${
-                confirmResetCheckbox && !isResetting
-                  ? "bg-red-600 hover:bg-red-700"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
-              }`}
-            >
-              {isResetting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Apagando Dados...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="w-4 h-4" />
-                  Apagar Tudo e Recomeçar
-                </>
-              )}
-            </button>
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+              <button
+                type="button"
+                onClick={handleDownloadSystemBackup}
+                disabled={isDownloadingBackup}
+                className="w-full sm:w-auto px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 cursor-pointer border border-slate-200"
+              >
+                <Download className="w-4 h-4 text-emerald-600" />
+                Fazer Backup Antes
+              </button>
+
+              <button
+                onClick={handleResetDatabase}
+                disabled={!confirmResetCheckbox || isResetting}
+                className={`w-full sm:w-auto px-5 py-3 rounded-xl font-bold text-xs text-white shadow-xs transition duration-150 flex items-center justify-center gap-2 cursor-pointer ${
+                  confirmResetCheckbox && !isResetting
+                    ? "bg-red-600 hover:bg-red-700"
+                    : "bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300"
+                }`}
+              >
+                {isResetting ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Apagando Dados...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    Apagar Tudo e Recomeçar
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>

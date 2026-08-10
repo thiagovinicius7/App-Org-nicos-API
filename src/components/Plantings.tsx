@@ -43,6 +43,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   const [editStatus, setEditStatus] = useState<"No campo" | "Esperando colheita" | "Colhendo">("No campo");
   const [editPerdas, setEditPerdas] = useState<number>(0);
   const [editObs, setEditObs] = useState<string>("");
+  const [editData, setEditData] = useState<string>("");
+  const [editPrevisao, setEditPrevisao] = useState<string>("");
   const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   const [isFinalizeOpen, setIsFinalizeOpen] = useState<boolean>(false);
@@ -84,7 +86,14 @@ export default function Plantings({ onNotify }: PlantingsProps) {
 
       // 3. Fetch canteiro plantings
       const plantingsSnapshot = await getDocs(collection(db, "plantings"));
-      const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
+      const plantingsList = plantingsSnapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          docId: d.id,
+          id: data.id || d.id,
+        } as Planting;
+      });
       setPlantings(plantingsList);
 
       // 4. Fetch harvests
@@ -161,6 +170,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
     setEditStatus(selectedPlanting.status === "Finalizado" ? "No campo" : (selectedPlanting.status as any));
     setEditPerdas(selectedPlanting.perdas || 0);
     setEditObs(selectedPlanting.obs || "");
+    setEditData(selectedPlanting.data || "");
+    setEditPrevisao(selectedPlanting.previsao || "");
     setIsEditOpen(true);
   };
 
@@ -172,10 +183,13 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   };
 
   const handleSaveEdit = async () => {
-    if (!selectedPlanting || !selectedPlanting.id) return;
+    if (!selectedPlanting) return;
+    const targetDocId = selectedPlanting.docId || selectedPlanting.id;
+    if (!targetDocId) return;
+
     try {
       setSavingEdit(true);
-      const docRef = doc(db, "plantings", selectedPlanting.id);
+      const docRef = doc(db, "plantings", targetDocId);
       
       const updatePayload: Partial<Planting> = {
         cultura: editCultura.trim(),
@@ -184,6 +198,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
         status: editStatus,
         perdas: Number(editPerdas) || 0,
         obs: editObs.trim(),
+        data: editData,
+        previsao: editPrevisao,
       };
 
       await updateDoc(docRef, updatePayload);
@@ -200,10 +216,13 @@ export default function Plantings({ onNotify }: PlantingsProps) {
   };
 
   const handleConfirmFinalize = async () => {
-    if (!selectedPlanting || !selectedPlanting.id) return;
+    if (!selectedPlanting) return;
+    const targetDocId = selectedPlanting.docId || selectedPlanting.id;
+    if (!targetDocId) return;
+
     try {
       setSavingFin(true);
-      const docRef = doc(db, "plantings", selectedPlanting.id);
+      const docRef = doc(db, "plantings", targetDocId);
 
       const updatePayload: Partial<Planting> = {
         status: "Finalizado",
@@ -1155,6 +1174,27 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                     value={editQt}
                     onChange={(e) => setEditQt(parseFloat(e.target.value) || 0)}
                     className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-sm font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Data do Plantio</label>
+                  <input
+                    type="date"
+                    value={editData}
+                    onChange={(e) => setEditData(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-sm font-medium"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-widest">Previsão Colheita</label>
+                  <input
+                    type="date"
+                    value={editPrevisao}
+                    onChange={(e) => setEditPrevisao(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-200 focus:border-indigo-500 rounded-lg text-sm font-medium"
                   />
                 </div>
               </div>

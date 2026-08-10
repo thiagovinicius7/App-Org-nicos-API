@@ -22,6 +22,7 @@ export interface Purchase {
 
 export interface Planting {
   id: string; // e.g., PLAN-YYMMDD-RAND
+  docId?: string; // Firestore document ID
   idLote: string; // purchase id
   data: string; // YYYY-MM-DD
   cultura: string;

@@ -61,7 +61,14 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       }
       // Fetch canteiros
       const plantingsSnapshot = await getDocs(collection(db, "plantings"));
-      const plantingsList = plantingsSnapshot.docs.map(d => ({ id: d.id, ...d.data() } as Planting));
+      const plantingsList = plantingsSnapshot.docs.map(d => {
+        const data = d.data();
+        return {
+          ...data,
+          docId: d.id,
+          id: data.id || d.id,
+        } as Planting;
+      });
       setPlantings(plantingsList);
 
       // Fetch harvests
@@ -108,13 +115,14 @@ export default function Harvests({ onNotify }: HarvestsProps) {
   };
 
   const handleToggleDisplayInSitio = async (planting: Planting) => {
-    if (!planting.id) return;
+    const targetDocId = planting.docId || planting.id;
+    if (!targetDocId) return;
     const newValue = !planting.displayInSitio;
     try {
-      const pRef = doc(db, "plantings", planting.id);
+      const pRef = doc(db, "plantings", targetDocId);
       await updateDoc(pRef, { displayInSitio: newValue });
       
-      setPlantings(prev => prev.map(p => p.id === planting.id ? { ...p, displayInSitio: newValue } : p));
+      setPlantings(prev => prev.map(p => (p.id === planting.id || p.docId === targetDocId) ? { ...p, displayInSitio: newValue } : p));
       
       onNotify(
         newValue 
@@ -137,7 +145,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleIniciarColheitaManual = async (pId: string) => {
     try {
-      const docRef = doc(db, "plantings", pId);
+      const pDoc = plantings.find(p => p.id === pId || p.docId === pId);
+      const targetDocId = pDoc?.docId || pDoc?.id || pId;
+      const docRef = doc(db, "plantings", targetDocId);
       await updateDoc(docRef, { status: "Colhendo" });
       onNotify("Colheita iniciada para o canteiro!", "success");
       fetchData();
@@ -174,7 +184,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       const batch = writeBatch(db);
       
       // 1. Finalize current planting
-      const currentRef = doc(db, "plantings", selectedPlantingId);
+      const currentDoc = plantings.find(p => p.id === selectedPlantingId || p.docId === selectedPlantingId);
+      const currentDocId = currentDoc?.docId || currentDoc?.id || selectedPlantingId;
+      const currentRef = doc(db, "plantings", currentDocId);
       batch.update(currentRef, {
         status: "Finalizado",
         dataFim: activeDate,
@@ -184,7 +196,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
       // 2. Start harvest on selected new canteiro if one is chosen
       if (mudarIDTargetPlanting) {
-        const nextRef = doc(db, "plantings", mudarIDTargetPlanting);
+        const nextDoc = plantings.find(p => p.id === mudarIDTargetPlanting || p.docId === mudarIDTargetPlanting);
+        const nextDocId = nextDoc?.docId || nextDoc?.id || mudarIDTargetPlanting;
+        const nextRef = doc(db, "plantings", nextDocId);
         batch.update(nextRef, {
           status: "Colhendo"
         });
@@ -254,14 +268,17 @@ export default function Harvests({ onNotify }: HarvestsProps) {
         }
 
         // Update corresponding planting's running total colhido
-        const plantingDoc = plantings.find(p => p.id === pId);
-        if (plantingDoc && plantingDoc.id) {
-          const plantingRef = doc(db, "plantings", plantingDoc.id);
-          const currentTotal = plantingDoc.totalColhido || 0;
-          batch.update(plantingRef, {
-            totalColhido: currentTotal + diff,
-            status: "Colhendo"
-          });
+        const plantingDoc = plantings.find(p => p.id === pId || p.docId === pId);
+        if (plantingDoc) {
+          const targetDocId = plantingDoc.docId || plantingDoc.id;
+          if (targetDocId) {
+            const plantingRef = doc(db, "plantings", targetDocId);
+            const currentTotal = plantingDoc.totalColhido || 0;
+            batch.update(plantingRef, {
+              totalColhido: currentTotal + diff,
+              status: "Colhendo"
+            });
+          }
         }
 
         await batch.commit();
@@ -296,7 +313,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
         const numericVal = parseFloat(valStr as string);
         if (!numericVal || numericVal <= 0) continue;
 
-        const p = plantings.find(pl => pl.id === pId);
+        const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
         if (!p) continue;
 
         // Create log document
@@ -312,8 +329,9 @@ export default function Harvests({ onNotify }: HarvestsProps) {
         batch.set(newLogRef, payload);
 
         // Update planting total
-        if (p.id) {
-          const plantingRef = doc(db, "plantings", p.id);
+        const targetDocId = p.docId || p.id;
+        if (targetDocId) {
+          const plantingRef = doc(db, "plantings", targetDocId);
           const currentTotal = p.totalColhido || 0;
           batch.update(plantingRef, {
             totalColhido: currentTotal + numericVal,
@@ -384,13 +402,16 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       batch.update(logRef, { qtd: editLogQtd });
 
       // 2. Adjust planting's cumulative total
-      const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio);
-      if (plantingDoc && plantingDoc.id) {
-        const plantingRef = doc(db, "plantings", plantingDoc.id);
-        const currentTotal = plantingDoc.totalColhido || 0;
-        batch.update(plantingRef, {
-          totalColhido: currentTotal + diff
-        });
+      const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
+      if (plantingDoc) {
+        const targetDocId = plantingDoc.docId || plantingDoc.id;
+        if (targetDocId) {
+          const plantingRef = doc(db, "plantings", targetDocId);
+          const currentTotal = plantingDoc.totalColhido || 0;
+          batch.update(plantingRef, {
+            totalColhido: currentTotal + diff
+          });
+        }
       }
 
       await batch.commit();
@@ -416,13 +437,16 @@ export default function Harvests({ onNotify }: HarvestsProps) {
         batch.delete(logRef);
 
         // 2. Decrement planting's running total
-        const plantingDoc = plantings.find(p => p.id === log.idPlantio);
-        if (plantingDoc && plantingDoc.id) {
-          const plantingRef = doc(db, "plantings", plantingDoc.id);
-          const currentTotal = plantingDoc.totalColhido || 0;
-          batch.update(plantingRef, {
-            totalColhido: Math.max(0, currentTotal - log.qtd)
-          });
+        const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
+        if (plantingDoc) {
+          const targetDocId = plantingDoc.docId || plantingDoc.id;
+          if (targetDocId) {
+            const plantingRef = doc(db, "plantings", targetDocId);
+            const currentTotal = plantingDoc.totalColhido || 0;
+            batch.update(plantingRef, {
+              totalColhido: Math.max(0, currentTotal - log.qtd)
+            });
+          }
         }
 
         await batch.commit();
