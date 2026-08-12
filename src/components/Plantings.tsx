@@ -144,8 +144,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
       if (selectedLot) {
         updated[index].cultura = selectedLot.cultura;
         updated[index].loteSaldoMax = selectedLot.saldo;
-        // Limit current planting quantity if it exceeds stock balance
-        if (updated[index].quantidade > selectedLot.saldo) {
+        // Limit current planting quantity if it exceeds stock balance ONLY for Mudas
+        if (updated[index].tipo === "Muda" && updated[index].quantidade > selectedLot.saldo) {
           updated[index].quantidade = selectedLot.saldo;
         }
       }
@@ -318,17 +318,27 @@ export default function Plantings({ onNotify }: PlantingsProps) {
               ? localStockBalances[c.loteId]
               : matchingPurchaseDoc.saldo;
 
-            const remainingBalance = currentBalance - c.quantidade;
-            
             let stockStatus = "Ativo";
-            let finalRemainingBalance = remainingBalance;
+            let finalRemainingBalance = currentBalance - c.quantidade;
 
-            if (c.acaoSobra === "perda") {
-              stockStatus = `Esgotado (Perda: ${c.motivoPerda || "Não especificado"})`;
-              finalRemainingBalance = 0;
-            } else if (remainingBalance <= 0) {
-              stockStatus = "Esgotado";
-              finalRemainingBalance = 0;
+            if (c.tipo === "Semente") {
+              // For seeds: c.quantidade is area in m² (e.g. 20m²). Seed stock is measured in packages/kg.
+              if (c.acaoSobra === "perda") {
+                stockStatus = `Esgotado (Sementes finalizadas/perda: ${c.motivoPerda || "Não especificado"})`;
+                finalRemainingBalance = 0;
+              } else {
+                // Decrement 1 package/unit from seed balance or set to 0 if 1 unit was used
+                finalRemainingBalance = Math.max(0, currentBalance - 1);
+                stockStatus = finalRemainingBalance <= 0 ? "Esgotado" : "Ativo";
+              }
+            } else {
+              if (c.acaoSobra === "perda") {
+                stockStatus = `Esgotado (Perda: ${c.motivoPerda || "Não especificado"})`;
+                finalRemainingBalance = 0;
+              } else if (finalRemainingBalance <= 0) {
+                stockStatus = "Esgotado";
+                finalRemainingBalance = 0;
+              }
             }
 
             // Update local stock tracking
@@ -905,7 +915,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                               onChange={(e) => {
                                 const q = Math.max(0, parseFloat(e.target.value) || 0);
                                 const max = c.loteSaldoMax;
-                                if (max !== undefined && q > max) {
+                                if (c.tipo === "Muda" && max !== undefined && q > max) {
                                   onNotify(`Você só possui ${max} mudas disponíveis neste lote!`, "error");
                                   updateCanteiroRow(idx, "quantidade", max);
                                 } else {

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, query, where, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Purchase, Crop, Planting } from "../types";
-import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check, X } from "lucide-react";
+import { Plus, Trash, Search, ArrowLeft, Loader2, Info, ChevronDown, ChevronUp, Check, X, Edit2, Calendar, Filter } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface PurchasesProps {
@@ -22,6 +22,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [search, setSearch] = useState<string>("");
+  const [selectedDateFilter, setSelectedDateFilter] = useState<string>("");
 
   // Form states
   const [compraData, setCompraData] = useState<string>(new Date().toISOString().split("T")[0]);
@@ -29,6 +30,18 @@ export default function Purchases({ onNotify }: PurchasesProps) {
   const [compraNf, setCompraNf] = useState<string>("");
   const [itens, setItens] = useState<NewPurchaseItem[]>([{ tipo: "Muda", cultura: "", quantidade: 0 }]);
   const [saving, setSaving] = useState<boolean>(false);
+
+  // Edit Purchase States
+  const [editingPurchase, setEditingPurchase] = useState<Purchase | null>(null);
+  const [editData, setEditData] = useState<string>("");
+  const [editFornecedor, setEditFornecedor] = useState<string>("");
+  const [editNf, setEditNf] = useState<string>("");
+  const [editTipo, setEditTipo] = useState<"Muda" | "Semente">("Muda");
+  const [editCultura, setEditCultura] = useState<string>("");
+  const [editQuantidade, setEditQuantidade] = useState<number>(0);
+  const [editSaldo, setEditSaldo] = useState<number>(0);
+  const [editStatus, setEditStatus] = useState<string>("Ativo");
+  const [savingEdit, setSavingEdit] = useState<boolean>(false);
 
   // Zerar Estoque Modal States
   const [selectedPurchaseToZero, setSelectedPurchaseToZero] = useState<Purchase | null>(null);
@@ -144,6 +157,62 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     }
   };
 
+  const handleOpenEditPurchase = (p: Purchase) => {
+    setEditingPurchase(p);
+    setEditData(p.data || new Date().toISOString().split("T")[0]);
+    setEditFornecedor(p.fornecedor || "");
+    setEditNf(p.nf || "");
+    setEditTipo(isSemente(p.tipo) ? "Semente" : "Muda");
+    setEditCultura(p.cultura || "");
+    setEditQuantidade(p.quantidade || 0);
+    setEditSaldo(p.saldo !== undefined ? p.saldo : p.quantidade || 0);
+    setEditStatus(p.status || "Ativo");
+  };
+
+  const handleSaveEditPurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPurchase) return;
+    if (!editFornecedor.trim()) {
+      onNotify("Informe o fornecedor.", "error");
+      return;
+    }
+    if (!editCultura) {
+      onNotify("Selecione a cultura.", "error");
+      return;
+    }
+    if (editQuantidade < 0 || editSaldo < 0) {
+      onNotify("Quantidade e saldo não podem ser negativos.", "error");
+      return;
+    }
+
+    try {
+      setSavingEdit(true);
+      const targetDocId = editingPurchase.docId || editingPurchase.id;
+      
+      const newStatus = editSaldo <= 0 ? "Esgotado" : editStatus;
+
+      await updateDoc(doc(db, "purchases", targetDocId), {
+        data: editData,
+        fornecedor: editFornecedor.trim(),
+        nf: editNf.trim() || "S/N",
+        tipo: editTipo,
+        cultura: editCultura,
+        quantidade: Number(editQuantidade),
+        saldo: Number(editSaldo),
+        status: newStatus,
+      });
+
+      onNotify("Compra atualizada com sucesso!", "success");
+      setEditingPurchase(null);
+      fetchData();
+    } catch (err) {
+      console.error("Error updating purchase:", err);
+      onNotify("Erro ao atualizar a compra.", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const openForm = () => {
     setCompraData(new Date().toISOString().split("T")[0]);
     setCompraFornecedor("");
@@ -229,21 +298,40 @@ export default function Purchases({ onNotify }: PurchasesProps) {
     return !isSemente(tipo);
   };
 
+  // Filter list by search AND selected date filter
+  const matchesSearchAndDate = (p: Purchase) => {
+    const matchesQuery = !search.trim() || 
+      (p.cultura || "").toLowerCase().includes(search.toLowerCase()) || 
+      (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()) ||
+      (p.id || "").toLowerCase().includes(search.toLowerCase());
+
+    const matchesDate = !selectedDateFilter || p.data === selectedDateFilter;
+
+    return matchesQuery && matchesDate;
+  };
+
   const activeMudas = purchases.filter(p => 
     isMuda(p.tipo) && 
     (p.status === "Ativo" || !p.status) && 
     (p.saldo === undefined || p.saldo > 0) &&
-    ((p.cultura || "").toLowerCase().includes(search.toLowerCase()) || (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()))
+    matchesSearchAndDate(p)
   );
 
   const activeSementes = purchases.filter(p => 
     isSemente(p.tipo) && 
     (p.status === "Ativo" || !p.status) && 
     (p.saldo === undefined || p.saldo > 0) &&
-    ((p.cultura || "").toLowerCase().includes(search.toLowerCase()) || (p.fornecedor || "").toLowerCase().includes(search.toLowerCase()))
+    matchesSearchAndDate(p)
   );
 
-  const inactivePurchases = purchases.filter(p => p.status === "Esgotado" || (p.saldo !== undefined && p.saldo <= 0));
+  const inactivePurchases = purchases.filter(p => 
+    (p.status === "Esgotado" || (p.saldo !== undefined && p.saldo <= 0)) &&
+    matchesSearchAndDate(p)
+  );
+
+  const dateFilteredAllItems = selectedDateFilter
+    ? purchases.filter(p => p.data === selectedDateFilter)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -260,7 +348,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <div>
                 <h1 className="text-xl font-bold text-slate-800 tracking-tight">Estoque e Compras</h1>
-                <p className="text-slate-500 text-sm mt-1">Gerencie suas entradas de mudas e sementes e acompanhe os saldos ativos.</p>
+                <p className="text-slate-500 text-sm mt-1">Gerencie suas entradas de mudas e sementes, consulte compras por data e atualize valores.</p>
               </div>
               <button
                 onClick={openForm}
@@ -271,17 +359,103 @@ export default function Purchases({ onNotify }: PurchasesProps) {
               </button>
             </div>
 
-            {/* Quick search filter */}
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center gap-3">
-              <Search className="w-5 h-5 text-slate-400 shrink-0" />
-              <input
-                type="text"
-                placeholder="Filtrar estoque por cultura ou fornecedor..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full text-sm text-slate-800 placeholder-slate-400 bg-transparent border-0 outline-none focus:ring-0"
-              />
+            {/* Quick search and Date Filter bar */}
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-stretch md:items-center gap-4">
+              <div className="flex items-center gap-3 flex-1 bg-slate-50 px-3.5 py-2.5 rounded-xl border border-slate-200">
+                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Filtrar estoque por cultura, fornecedor ou lote..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full text-xs text-slate-800 placeholder-slate-400 bg-transparent border-0 outline-none focus:ring-0"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 bg-slate-50 p-2 rounded-xl border border-slate-200 shrink-0">
+                <Calendar className="w-4 h-4 text-emerald-600 shrink-0 ml-1" />
+                <label className="text-xs font-bold text-slate-600 shrink-0 whitespace-nowrap">Filtrar por Data:</label>
+                <input
+                  type="date"
+                  value={selectedDateFilter}
+                  onChange={(e) => setSelectedDateFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-800 outline-none focus:border-emerald-500"
+                />
+                {selectedDateFilter && (
+                  <button
+                    onClick={() => setSelectedDateFilter("")}
+                    className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition cursor-pointer"
+                    title="Limpar filtro de data"
+                  >
+                    Ver Todas
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Selected Date Summary Card if filtering by date */}
+            {selectedDateFilter && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-emerald-950 text-white p-5 rounded-2xl border border-emerald-800/80 shadow-md space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-emerald-800/60 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <Calendar className="w-5 h-5 text-emerald-400" />
+                    <div>
+                      <h3 className="font-bold text-sm text-emerald-100">
+                        Compras do Dia: <span className="text-white text-base font-black">{formatToBrazDate(selectedDateFilter)}</span>
+                      </h3>
+                      <p className="text-xs text-emerald-300">
+                        Exibindo todos os {dateFilteredAllItems.length} itens adquiridos nesta data.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setSelectedDateFilter("")}
+                    className="text-xs font-bold bg-emerald-800/80 hover:bg-emerald-800 text-emerald-100 px-3 py-1.5 rounded-lg transition"
+                  >
+                    Limpar Filtro
+                  </button>
+                </div>
+
+                {dateFilteredAllItems.length === 0 ? (
+                  <p className="text-xs text-emerald-300 py-2">Nenhuma compra encontrada para a data selecionada ({formatToBrazDate(selectedDateFilter)}).</p>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+                    {dateFilteredAllItems.map(p => (
+                      <div key={p.id} className="bg-emerald-900/60 border border-emerald-700/50 p-3.5 rounded-xl space-y-2">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] font-mono text-emerald-400 font-bold block">{p.id}</span>
+                            <span className="font-bold text-sm text-white">{p.cultura}</span>
+                          </div>
+                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${p.status === "Esgotado" ? "bg-rose-950 text-rose-300 border border-rose-800" : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"}`}>
+                            {p.status || "Ativo"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-emerald-200 space-y-0.5">
+                          <p><span className="text-emerald-400 font-semibold">Tipo:</span> {p.tipo}</p>
+                          <p><span className="text-emerald-400 font-semibold">Fornecedor:</span> {p.fornecedor}</p>
+                          <p><span className="text-emerald-400 font-semibold">NF:</span> {p.nf}</p>
+                          <p><span className="text-emerald-400 font-semibold">Qtde / Saldo:</span> {p.quantidade} / <strong className="text-white font-mono">{p.saldo}</strong></p>
+                        </div>
+                        <div className="pt-2 flex items-center justify-end gap-2 border-t border-emerald-800/50">
+                          <button
+                            onClick={() => handleOpenEditPurchase(p)}
+                            className="bg-emerald-700 hover:bg-emerald-600 text-white font-bold px-2.5 py-1 rounded-lg text-xs transition cursor-pointer flex items-center gap-1"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            Editar
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
 
             {loading ? (
               <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm">
@@ -312,7 +486,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                         {activeMudas.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="p-8 text-center text-slate-400 text-xs font-semibold">
-                              Nenhuma muda ativa em estoque.
+                              Nenhuma muda ativa encontrada.
                             </td>
                           </tr>
                         ) : (
@@ -328,16 +502,26 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                 {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">unid</span>
                               </td>
                               <td className="p-4 text-right">
-                                <button
-                                  onClick={() => {
-                                    setSelectedPurchaseToZero(p);
-                                    setMotivoZerarOption("Mortalidade / Perda no viveiro");
-                                    setDetalhesMotivo("");
-                                  }}
-                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
-                                >
-                                  Zerar Estoque
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditPurchase(p)}
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-slate-200 flex items-center gap-1"
+                                    title="Alterar dados e valores da compra"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                                    Editar
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPurchaseToZero(p);
+                                      setMotivoZerarOption("Mortalidade / Perda no viveiro");
+                                      setDetalhesMotivo("");
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
+                                  >
+                                    Zerar
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -369,7 +553,7 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                         {activeSementes.length === 0 ? (
                           <tr>
                             <td colSpan={5} className="p-8 text-center text-slate-400 text-xs font-semibold">
-                              Nenhuma semente ativa em estoque.
+                              Nenhuma semente ativa encontrada.
                             </td>
                           </tr>
                         ) : (
@@ -385,16 +569,26 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                 {p.saldo.toLocaleString()} <span className="text-[10px] font-normal text-slate-400">em estoque</span>
                               </td>
                               <td className="p-4 text-right">
-                                <button
-                                  onClick={() => {
-                                    setSelectedPurchaseToZero(p);
-                                    setMotivoZerarOption("Estoque finalizado / Consumo total");
-                                    setDetalhesMotivo("");
-                                  }}
-                                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
-                                >
-                                  Zerar Estoque
-                                </button>
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleOpenEditPurchase(p)}
+                                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-slate-200 flex items-center gap-1"
+                                    title="Alterar dados e valores da compra"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5 text-slate-600" />
+                                    Editar
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPurchaseToZero(p);
+                                      setMotivoZerarOption("Estoque finalizado / Consumo total");
+                                      setDetalhesMotivo("");
+                                    }}
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition duration-150 cursor-pointer border border-rose-100"
+                                  >
+                                    Zerar
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))
@@ -452,13 +646,23 @@ export default function Purchases({ onNotify }: PurchasesProps) {
                                     <span className="font-semibold text-slate-600 block">{p.motivoZerar || "Lote Plantado / Esgotado"}</span>
                                   </td>
                                   <td className="p-3 text-right">
-                                    <button
-                                      onClick={() => handleRestaurarSaldo(p)}
-                                      className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2.5 py-1 rounded text-[11px] transition cursor-pointer border border-emerald-100/40"
-                                      title="Reativar e restaurar saldo no estoque"
-                                    >
-                                      Restaurar Saldo
-                                    </button>
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        onClick={() => handleOpenEditPurchase(p)}
+                                        className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold px-2 py-1 rounded text-[11px] transition cursor-pointer border border-slate-300/60 flex items-center gap-1"
+                                        title="Alterar dados e valores"
+                                      >
+                                        <Edit2 className="w-3 h-3 text-slate-600" />
+                                        Editar
+                                      </button>
+                                      <button
+                                        onClick={() => handleRestaurarSaldo(p)}
+                                        className="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-2 py-1 rounded text-[11px] transition cursor-pointer border border-emerald-100/40"
+                                        title="Reativar e restaurar saldo no estoque"
+                                      >
+                                        Restaurar
+                                      </button>
+                                    </div>
                                   </td>
                                 </tr>
                               ))
@@ -472,85 +676,155 @@ export default function Purchases({ onNotify }: PurchasesProps) {
               </div>
             )}
 
-            {/* Zerar Estoque Modal */}
+            {/* Edit Purchase Modal */}
             <AnimatePresence>
-              {selectedPurchaseToZero && (
+              {editingPurchase && (
                 <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
                   <motion.div
                     initial={{ scale: 0.95, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     exit={{ scale: 0.95, opacity: 0 }}
-                    className="bg-white w-full max-w-md rounded-2xl border border-slate-200 shadow-xl overflow-hidden space-y-4 p-6"
+                    className="bg-white w-full max-w-lg rounded-2xl border border-slate-200 shadow-xl overflow-hidden space-y-4 p-6"
                   >
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start border-b border-slate-100 pb-3">
                       <div>
-                        <h3 className="text-base font-bold text-slate-800">Zerar Estoque de Item</h3>
+                        <h3 className="text-base font-bold text-slate-800">Alterar Compra / Atualizar Valores</h3>
                         <p className="text-xs text-slate-500 mt-0.5">
-                          Lote <span className="font-mono font-bold text-emerald-700">{selectedPurchaseToZero.id}</span> ({selectedPurchaseToZero.cultura})
+                          Lote <span className="font-mono font-bold text-emerald-700">{editingPurchase.id}</span>
                         </p>
                       </div>
                       <button
-                        onClick={() => setSelectedPurchaseToZero(null)}
+                        onClick={() => setEditingPurchase(null)}
                         className="text-slate-400 hover:text-slate-600 p-1"
                       >
                         <X className="w-5 h-5" />
                       </button>
                     </div>
 
-                    <div className="space-y-3 bg-slate-50 p-3.5 rounded-xl border border-slate-200/60 text-xs text-slate-600">
-                      <p><span className="font-bold text-slate-500">Fornecedor:</span> {selectedPurchaseToZero.fornecedor}</p>
-                      <p><span className="font-bold text-slate-500">Tipo:</span> {selectedPurchaseToZero.tipo}</p>
-                      <p><span className="font-bold text-slate-500">Quantidade Inicial:</span> {selectedPurchaseToZero.quantidade}</p>
-                      <p><span className="font-bold text-slate-500">Saldo Atual:</span> {selectedPurchaseToZero.saldo}</p>
-                    </div>
+                    <form onSubmit={handleSaveEditPurchase} className="space-y-4 text-xs">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Data da Compra</label>
+                          <input
+                            type="date"
+                            required
+                            value={editData}
+                            onChange={(e) => setEditData(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-medium"
+                          />
+                        </div>
 
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
-                        Motivo da Baixa / Zeramento
-                      </label>
-                      <select
-                        value={motivoZerarOption}
-                        onChange={(e) => setMotivoZerarOption(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-emerald-500"
-                      >
-                        <option value="Mortalidade / Perda no viveiro">Mortalidade / Perda no viveiro</option>
-                        <option value="Estoque finalizado / Consumo total">Estoque finalizado / Consumo total</option>
-                        <option value="Praga ou Doença">Ataque de Praga ou Doença</option>
-                        <option value="Deterioração / Validade">Deterioração / Perda da validade</option>
-                        <option value="Avaria / Acidente de Manuseio">Avaria ou Acidente no manuseio</option>
-                        <option value="Outro motivo">Outro motivo (especificar abaixo)</option>
-                      </select>
-                    </div>
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Tipo de Entrada</label>
+                          <select
+                            value={editTipo}
+                            onChange={(e) => setEditTipo(e.target.value as "Muda" | "Semente")}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-semibold"
+                          >
+                            <option value="Muda">Muda</option>
+                            <option value="Semente">Semente</option>
+                          </select>
+                        </div>
+                      </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-                        Observações adicionais (opcional)
-                      </label>
-                      <textarea
-                        rows={2}
-                        placeholder="Ex: Mudas sentiram o calor ou sementes acabaram no plantio..."
-                        value={detalhesMotivo}
-                        onChange={(e) => setDetalhesMotivo(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 outline-none focus:border-emerald-500"
-                      />
-                    </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Fornecedor</label>
+                          <input
+                            type="text"
+                            required
+                            value={editFornecedor}
+                            onChange={(e) => setEditFornecedor(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-medium"
+                          />
+                        </div>
 
-                    <div className="flex gap-3 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setSelectedPurchaseToZero(null)}
-                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleConfirmZerar}
-                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs"
-                      >
-                        Confirmar e Zerar
-                      </button>
-                    </div>
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Nota Fiscal (NF)</label>
+                          <input
+                            type="text"
+                            value={editNf}
+                            onChange={(e) => setEditNf(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-medium"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Cultura</label>
+                        <select
+                          required
+                          value={editCultura}
+                          onChange={(e) => setEditCultura(e.target.value)}
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 outline-none focus:border-emerald-500 font-semibold"
+                        >
+                          <option value="" disabled>Selecione a cultura...</option>
+                          {crops.map((c) => (
+                            <option key={c.nome} value={c.nome}>
+                              {c.nome}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Qtde Inicial</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            required
+                            value={editQuantidade}
+                            onChange={(e) => setEditQuantidade(parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Saldo Atual</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            required
+                            value={editSaldo}
+                            onChange={(e) => setEditSaldo(parseFloat(e.target.value) || 0)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800 outline-none focus:border-emerald-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="block font-bold text-slate-600 uppercase tracking-wider text-[10px]">Status</label>
+                          <select
+                            value={editStatus}
+                            onChange={(e) => setEditStatus(e.target.value)}
+                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-semibold text-slate-800 outline-none focus:border-emerald-500"
+                          >
+                            <option value="Ativo">Ativo</option>
+                            <option value="Esgotado">Esgotado</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-3 pt-3 border-t border-slate-100">
+                        <button
+                          type="button"
+                          onClick={() => setEditingPurchase(null)}
+                          className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={savingEdit}
+                          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-2"
+                        >
+                          {savingEdit && <Loader2 className="w-4 h-4 animate-spin" />}
+                          {savingEdit ? "Salvando..." : "Salvar Alterações"}
+                        </button>
+                      </div>
+                    </form>
                   </motion.div>
                 </div>
               )}
