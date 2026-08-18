@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
-import { Calendar, AlertCircle, Play, Save, ChevronRight, ChevronDown, Check, Loader2, ArrowLeftRight, Trash2, Edit2, Clock, X } from "lucide-react";
+import { Calendar, AlertCircle, Play, Save, ChevronRight, ChevronDown, Check, Loader2, ArrowLeftRight, Trash2, Edit2, Clock, X, Smartphone, QrCode } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
 interface HarvestsProps {
@@ -112,11 +112,19 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     return p.status;
   };
 
-  // Groupings for daily list: 4 categories (No campo plantings are hidden from this view)
+  const [showNoCampo, setShowNoCampo] = useState<boolean>(false);
+
+  // Groupings for daily list:
+  // 0: Talhões Numéricos (Colhendo)
+  // 1: Sítio (Colhendo)
+  // 2: Colheita atrasada
+  // 3: Esperando colheita
+  // 4: No campo (se ativado)
   const getGroupCategory = (p: Planting): number => {
     const calcStatus = getCalculatedStatus(p);
     if (calcStatus === "Colheita atrasada") return 2;
     if (calcStatus === "Esperando colheita") return 3;
+    if (calcStatus === "No campo") return 4;
     
     // Check if user manually marked to display in Sítio group
     if (p.displayInSitio) return 1;
@@ -152,7 +160,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     { id: 0, label: "🔢 Talhões Numéricos — Em Colheita", color: "text-emerald-700 bg-emerald-100/60 border-emerald-100" },
     { id: 1, label: "🌿 Sítio — Em Colheita", color: "text-teal-700 bg-teal-100/60 border-teal-100" },
     { id: 2, label: "⚠️ Colheita Atrasada", color: "text-rose-700 bg-rose-100/60 border-rose-100" },
-    { id: 3, label: "🕐 Esperando Colheita", color: "text-amber-700 bg-amber-100/60 border-amber-100" }
+    { id: 3, label: "🕐 Esperando Colheita", color: "text-amber-700 bg-amber-100/60 border-amber-100" },
+    { id: 4, label: "🌱 No Campo — Plantios em Desenvolvimento", color: "text-sky-700 bg-sky-100/60 border-sky-100" }
   ];
 
   const handleIniciarColheitaManual = async (pId: string) => {
@@ -471,12 +480,18 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     }
   };
 
-  // Filter canteiros that are actively on list (No campo, colhendo, delayed, or wait)
+  // Filter canteiros that are actively on list
   // Plantings that are Finalizado are strictly ignored
   const uniqueTalhoes = Array.from(new Set(plantings.map(p => p.talhao).filter(Boolean))).sort();
 
   const visibleCanteiros = plantings.filter(p => {
-    if (p.status === "Finalizado" || p.status === "No campo") return false;
+    if (p.status === "Finalizado") return false;
+    
+    // If it is 'No campo' (not delayed, not waiting), only show if showNoCampo is enabled or user searched
+    const calcStatus = getCalculatedStatus(p);
+    if (calcStatus === "No campo" && !showNoCampo && !searchTerm.trim()) {
+      return false;
+    }
     
     const matchesSearch = p.cultura.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           p.id.toLowerCase().includes(searchTerm.toLowerCase());
@@ -541,6 +556,19 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
           <button
             onClick={() => {
+              const mobileUrl = `${window.location.origin}/?mode=mobile_harvest`;
+              navigator.clipboard?.writeText(mobileUrl);
+              onNotify("Link do App Mobile copiado! Abra no celular para instalar.", "success");
+            }}
+            className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-2.5 rounded-xl transition text-xs border border-emerald-200 cursor-pointer"
+            title="Copiar link para abrir no celular"
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>Link p/ Celular</span>
+          </button>
+
+          <button
+            onClick={() => {
               setViewMode(viewMode === "daily" ? "history" : "daily");
               setModoColheitaAtivo(false);
               setSessaoColheitaAtual("");
@@ -583,8 +611,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             className="space-y-6"
           >
             {/* Filters Bar */}
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row gap-4">
-              <div className="flex-1 relative">
+            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center gap-4">
+              <div className="flex-1 w-full relative">
                 <input
                   type="text"
                   placeholder="🔍 Buscar por cultura ou ID do canteiro..."
@@ -593,7 +621,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                   className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-rose-500 outline-none transition font-semibold text-slate-800"
                 />
               </div>
-              <div className="w-full sm:w-[200px]">
+              <div className="w-full md:w-[180px]">
                 <select
                   value={filterTalhao}
                   onChange={(e) => setFilterTalhao(e.target.value)}
@@ -605,6 +633,18 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                   ))}
                 </select>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowNoCampo(prev => !prev)}
+                className={`w-full md:w-auto px-3.5 py-2.5 rounded-xl font-bold text-xs transition border cursor-pointer flex items-center justify-center gap-2 ${
+                  showNoCampo
+                    ? "bg-sky-50 text-sky-700 border-sky-300"
+                    : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                }`}
+              >
+                <span>🌱</span>
+                <span>{showNoCampo ? "Ocultar 'No Campo'" : "Ver Todos 'No Campo'"}</span>
+              </button>
             </div>
 
             {/* Active session banner */}
@@ -716,39 +756,61 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                   </td>
                                   <td className="p-4 text-right">
                                     {modoColheitaAtivo ? (
-                                      isColhendo ? (
-                                        <div className="flex items-center gap-2 justify-end">
-                                          <div className="relative flex items-center">
-                                            <input
-                                              type="number"
-                                              placeholder="Qtd"
-                                              value={qtyVal}
-                                              onChange={(e) => setValoresSessao(prev => ({ ...prev, [p.id!]: e.target.value }))}
-                                              className="w-24 px-2 py-1.5 pl-2 pr-8 text-center font-bold border border-slate-200 rounded-lg text-xs outline-none transition font-mono bg-white focus:border-rose-500 text-slate-800"
-                                            />
-                                            <span className="absolute right-2 text-[10px] font-extrabold text-slate-400 pointer-events-none">
-                                              {getCropHarvestUnit(p.cultura)}
-                                            </span>
-                                          </div>
+                                      <div className="flex items-center gap-2 justify-end">
+                                        <div className="relative flex items-center">
+                                          <input
+                                            type="number"
+                                            placeholder="Qtd"
+                                            value={qtyVal}
+                                            onChange={(e) => setValoresSessao(prev => ({ ...prev, [p.id!]: e.target.value }))}
+                                            className={`w-24 px-2 py-1.5 pl-2 pr-8 text-center font-bold border rounded-lg text-xs outline-none transition font-mono text-slate-800 ${
+                                              !isColhendo 
+                                                ? "border-emerald-300 bg-emerald-50/40 focus:border-emerald-500 focus:bg-white" 
+                                                : "border-slate-200 bg-white focus:border-rose-500"
+                                            }`}
+                                          />
+                                          <span className="absolute right-2 text-[10px] font-extrabold text-slate-400 pointer-events-none">
+                                            {getCropHarvestUnit(p.cultura)}
+                                          </span>
+                                        </div>
+                                        {isColhendo ? (
                                           <button
                                             onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
                                             className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-slate-200"
+                                            title="Trocar ID do canteiro"
                                           >
                                             <ArrowLeftRight className="w-3 h-3" />
                                             Troca ID
                                           </button>
-                                        </div>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleIniciarColheitaManual(p.id!)}
+                                            className="inline-flex items-center gap-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-emerald-300"
+                                            title="Iniciar colheita agora"
+                                          >
+                                            <Play className="w-3 h-3 fill-emerald-800" />
+                                            Iniciar
+                                          </button>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      isColhendo ? (
+                                        <button
+                                          onClick={() => handleOpenMudarID(p.id!, p.cultura, p.talhao)}
+                                          className="inline-flex items-center gap-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-2.5 py-1.5 rounded-lg text-xs transition cursor-pointer border border-slate-200"
+                                        >
+                                          <ArrowLeftRight className="w-3 h-3" />
+                                          Troca ID
+                                        </button>
                                       ) : (
                                         <button
                                           onClick={() => handleIniciarColheitaManual(p.id!)}
-                                          className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
+                                          className="inline-flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer shadow-xs"
                                         >
                                           <Play className="w-3 h-3 fill-white" />
                                           Iniciar Colheita
                                         </button>
                                       )
-                                    ) : (
-                                      <span className="text-xs text-slate-400 italic font-medium">Ative o modo Basket</span>
                                     )}
                                   </td>
                                 </tr>

@@ -7,6 +7,7 @@ import Harvests from "./components/Harvests";
 import Traceability from "./components/Traceability";
 import Importer from "./components/Importer";
 import UserGuide from "./components/UserGuide";
+import MobileHarvestApp from "./components/MobileHarvestApp";
 import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
 import { auth, googleSignIn, logout } from "./lib/firebase";
@@ -30,11 +31,12 @@ import {
   HelpCircle,
   LogOut,
   ShieldCheck,
-  Lock
+  Lock,
+  Smartphone
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
-type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide";
+type ActiveTab = "dashboard" | "crops" | "purchases" | "plantings" | "harvests" | "traceability" | "import" | "guide" | "mobile_harvest";
 
 interface Notification {
   id: string;
@@ -43,7 +45,15 @@ interface Notification {
 }
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("mode") === "mobile_harvest") {
+        return "mobile_harvest";
+      }
+    }
+    return "dashboard";
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [user, setUser] = useState<User | null>(null);
@@ -136,6 +146,7 @@ export default function App() {
     { id: "plantings" as const, label: "Plantio / Campo", icon: Sprout },
     { id: "harvests" as const, label: "Colheita Diária", icon: Droplets },
     { id: "traceability" as const, label: "Rastreabilidade", icon: Search },
+    { id: "mobile_harvest" as const, label: "App Celular (Colheita)", icon: Smartphone },
     { id: "import" as const, label: "Importar Planilha", icon: FileSpreadsheet },
     { id: "guide" as const, label: "Guia de Uso", icon: HelpCircle },
   ];
@@ -223,6 +234,46 @@ export default function App() {
 
         {/* Global Floating Notifications inside Login */}
         <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none print:hidden px-4">
+          <AnimatePresence>
+            {notifications.map((n) => (
+              <motion.div
+                key={n.id}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                className={`p-4 rounded-xl shadow-lg border text-xs font-semibold flex items-start gap-3 pointer-events-auto ${
+                  n.type === "success"
+                    ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+                    : n.type === "error"
+                    ? "bg-rose-50 border-rose-100 text-rose-800"
+                    : "bg-indigo-50 border-indigo-100 text-indigo-800"
+                }`}
+              >
+                {n.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : n.type === "error" ? (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                ) : (
+                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">{n.msg}</div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === "mobile_harvest") {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <MobileHarvestApp 
+          onNotify={addNotification} 
+          onExitMobile={() => setActiveTab("dashboard")} 
+        />
+        {/* Floating Notifications */}
+        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4">
           <AnimatePresence>
             {notifications.map((n) => (
               <motion.div
