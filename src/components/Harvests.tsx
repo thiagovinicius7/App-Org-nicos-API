@@ -556,8 +556,10 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
           <button
             onClick={() => {
-              const mobileUrl = `${window.location.origin}/?mode=mobile_harvest`;
-              navigator.clipboard?.writeText(mobileUrl);
+              // Build link with current pathname to support subpaths like GitHub Pages (https://user.github.io/repo-name/)
+              const url = new URL(window.location.href);
+              url.searchParams.set("mode", "mobile_harvest");
+              navigator.clipboard?.writeText(url.toString());
               onNotify("Link do App Mobile copiado! Abra no celular para instalar.", "success");
             }}
             className="flex items-center justify-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold px-3 py-2.5 rounded-xl transition text-xs border border-emerald-200 cursor-pointer"

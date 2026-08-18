@@ -47,8 +47,9 @@ interface Notification {
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
     if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("mode") === "mobile_harvest") {
+      const searchParams = new URLSearchParams(window.location.search);
+      const hash = window.location.hash || "";
+      if (searchParams.get("mode") === "mobile_harvest" || hash.includes("mode=mobile_harvest") || hash.includes("mobile_harvest")) {
         return "mobile_harvest";
       }
     }
