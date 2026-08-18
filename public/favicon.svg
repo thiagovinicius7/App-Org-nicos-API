@@ -1,13 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <circle cx="32" cy="32" r="30" fill="#166534" />
-  <!-- Soil base -->
-  <path d="M 16 45 C 24 41, 40 41, 48 45 C 42 51, 22 51, 16 45 Z" fill="#78350f" />
-  <!-- Left Leaf -->
-  <path d="M 32 38 C 20 35, 12 24, 18 14 C 28 15, 32 26, 32 38 Z" fill="#4ade80" />
-  <!-- Right Leaf -->
-  <path d="M 32 38 C 44 35, 52 24, 46 14 C 36 15, 32 26, 32 38 Z" fill="#22c55e" />
-  <!-- Stem -->
-  <path d="M 32 45 Q 31 36 32 22" stroke="#fef08a" stroke-width="2.5" stroke-linecap="round" fill="none" />
-  <!-- Center Sprout -->
-  <path d="M 32 22 C 28 16, 29 10, 32 8 C 35 10, 36 16, 32 22 Z" fill="#bbf7d0" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="100%" stop-color="#022c22" />
+    </linearGradient>
+    <linearGradient id="leafGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#34d399" />
+      <stop offset="100%" stop-color="#059669" />
+    </linearGradient>
+    <linearGradient id="leafGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#6ee7b7" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+    <linearGradient id="goldAccent" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fde047" />
+      <stop offset="100%" stop-color="#eab308" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background with subtle organic shape & high contrast border -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#10b981" stroke-width="4" stroke-opacity="0.35" />
+
+  <!-- Botanical Sprout / Leaf element -->
+  <g transform="translate(0, -25)">
+    <!-- Right Leaf -->
+    <path d="M 256 300 C 370 280 430 180 390 90 C 290 100 260 200 256 300 Z" fill="url(#leafGrad1)" opacity="0.95" />
+    <!-- Left Leaf -->
+    <path d="M 256 300 C 142 280 82 180 122 90 C 222 100 252 200 256 300 Z" fill="url(#leafGrad2)" opacity="0.9" />
+    <!-- Center Sprout -->
+    <path d="M 256 220 C 230 160 236 100 256 60 C 276 100 282 160 256 220 Z" fill="#ecfdf5" />
+    <!-- Central Organic Stem -->
+    <path d="M 256 360 Q 254 280 256 160" stroke="#a7f3d0" stroke-width="10" stroke-linecap="round" fill="none" />
+    <!-- Golden Organic Sun / Soil dot -->
+    <circle cx="256" cy="380" r="14" fill="url(#goldAccent)" />
+  </g>
+
+  <!-- Geranium Brand Typography Signature -->
+  <text x="256" y="420" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="44" font-weight="900" fill="#ffffff" letter-spacing="1">GERANIUM</text>
+  <text x="256" y="458" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="20" font-weight="700" fill="#34d399" letter-spacing="7">ORGÂNICOS</text>
 </svg>
