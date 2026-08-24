@@ -183,3 +183,19 @@ export async function writeDocumentRest(collectionId: string, documentId: string
 
   return await response.json();
 }
+
+export async function deleteDocumentRest(collectionId: string, documentId: string): Promise<any> {
+  const projectId = firebaseConfig.projectId;
+  const dbId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionId}/${documentId}`;
+
+  const response = await fetch(url, {
+    method: "DELETE",
+  });
+
+  if (!response.ok && response.status !== 404) {
+    const errText = await response.text();
+    throw new Error(`REST API Error: ${response.status} ${response.statusText} - ${errText}`);
+  }
+  return true;
+}

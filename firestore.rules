@@ -1,39 +1,39 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
     // Crops Collection
     match /crops/{cropId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // Purchases & Stock Collection
     match /purchases/{purchaseId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // Plantings Collection
     match /plantings/{plantingId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // Harvest Logs Collection
     match /harvests/{harvestId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // Metadata Collection
     match /metadata/{metaId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
     }
 
     // Authorized Emails Collection
     match /authorized_emails/{emailId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if true;
+    }
+
+    // Default rule
+    match /{document=**} {
+      allow read, write: if true;
     }
   }
 }

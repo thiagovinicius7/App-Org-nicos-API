@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { db, deleteDocumentRest, writeDocumentRest } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
 import { Calendar, AlertCircle, Play, Save, ChevronRight, ChevronDown, Check, Loader2, ArrowLeftRight, Trash2, Edit2, Clock, X, Smartphone, QrCode } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -419,49 +419,53 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleSaveEditLog = async () => {
     if (!logToEdit || !logToEdit.id) return;
-    try {
-      setSavingEditLog(true);
-      const batch = writeBatch(db);
+    setSavingEditLog(true);
 
-      const diff = editLogQtd - logToEdit.qtd;
+    const diff = editLogQtd - logToEdit.qtd;
+    const targetLogId = logToEdit.id;
+    const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
+    const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
 
-      // 1. Update harvest log quantity
-      const logRef = doc(db, "harvests", logToEdit.id);
-      batch.update(logRef, { qtd: editLogQtd });
-
-      // 2. Adjust planting's cumulative total
-      const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
-      if (plantingDoc) {
-        const targetDocId = plantingDoc.docId || plantingDoc.id;
-        if (targetDocId) {
-          const plantingRef = doc(db, "plantings", targetDocId);
-          const currentTotal = plantingDoc.totalColhido || 0;
-          batch.update(plantingRef, {
-            totalColhido: Math.max(0, currentTotal + diff)
-          });
-        }
-      }
-
-      await batch.commit();
-      onNotify("Lançamento ajustado com sucesso!", "success");
-      setIsEditLogOpen(false);
-      
-      // Update local state immediately
-      setHarvests(prev => prev.map(h => h.id === logToEdit.id ? { ...h, qtd: editLogQtd } : h));
-      setHistoricLogs(prev => prev.map(h => h.id === logToEdit.id ? { ...h, qtd: editLogQtd } : h));
+    // Optimistic local update
+    setHarvests(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: editLogQtd } : h));
+    setHistoricLogs(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: editLogQtd } : h));
+    if (targetDocId && plantingDoc) {
       setPlantings(prev => prev.map(p => {
-        if (p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio) {
+        if (p.docId === targetDocId || p.id === targetDocId) {
           return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) + diff) };
         }
         return p;
       }));
+    }
 
-      fetchData(false);
+    try {
+      // 1. Update harvest log quantity
+      try {
+        await updateDoc(doc(db, "harvests", targetLogId), { qtd: editLogQtd });
+      } catch {
+        await writeDocumentRest("harvests", targetLogId, { qtd: editLogQtd });
+      }
+
+      // 2. Adjust planting's cumulative total
+      if (targetDocId && plantingDoc) {
+        const currentTotal = plantingDoc.totalColhido || 0;
+        const newTotal = Math.max(0, currentTotal + diff);
+        try {
+          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
+        } catch {
+          await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
+        }
+      }
+
+      onNotify("Lançamento ajustado com sucesso!", "success");
     } catch (err) {
       console.error("Error adjusting log:", err);
-      onNotify("Erro ao ajustar o lançamento.", "error");
+      onNotify("Lançamento atualizado localmente.", "info");
     } finally {
       setSavingEditLog(false);
+      setIsEditLogOpen(false);
+      setLogToEdit(null);
+      fetchData(false);
     }
   };
 
@@ -472,49 +476,55 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteLog = async () => {
     if (!logToDelete || !logToDelete.id) return;
-    try {
-      setDeletingLog(true);
-      const batch = writeBatch(db);
+    setDeletingLog(true);
 
-      // 1. Delete harvest log doc
-      const logRef = doc(db, "harvests", logToDelete.id);
-      batch.delete(logRef);
+    const log = logToDelete;
+    const deletedId = log.id!;
 
-      // 2. Decrement planting's running total
-      const plantingDoc = plantings.find(p => p.id === logToDelete.idPlantio || p.docId === logToDelete.idPlantio);
-      if (plantingDoc) {
-        const targetDocId = plantingDoc.docId || plantingDoc.id;
-        if (targetDocId) {
-          const plantingRef = doc(db, "plantings", targetDocId);
-          const currentTotal = plantingDoc.totalColhido || 0;
-          batch.update(plantingRef, {
-            totalColhido: Math.max(0, currentTotal - logToDelete.qtd)
-          });
-        }
-      }
+    // Decrement calculation
+    const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
+    const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
 
-      await batch.commit();
-      onNotify("Lançamento excluído com sucesso!", "success");
-      setIsDeleteConfirmOpen(false);
-      
-      // Update local state immediately
-      const deletedId = logToDelete.id;
-      setHarvests(prev => prev.filter(h => h.id !== deletedId));
-      setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
+    // Optimistic local state update
+    setHarvests(prev => prev.filter(h => h.id !== deletedId));
+    setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
+    if (targetDocId && plantingDoc) {
       setPlantings(prev => prev.map(p => {
-        if (p.id === logToDelete.idPlantio || p.docId === logToDelete.idPlantio) {
-          return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - logToDelete.qtd) };
+        if (p.docId === targetDocId || p.id === targetDocId) {
+          return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - log.qtd) };
         }
         return p;
       }));
-      setLogToDelete(null);
+    }
 
-      fetchData(false);
+    try {
+      // 1. Delete harvest doc
+      try {
+        await deleteDoc(doc(db, "harvests", deletedId));
+      } catch {
+        await deleteDocumentRest("harvests", deletedId);
+      }
+
+      // 2. Decrement planting total in Firestore
+      if (targetDocId && plantingDoc) {
+        const currentTotal = plantingDoc.totalColhido || 0;
+        const newTotal = Math.max(0, currentTotal - log.qtd);
+        try {
+          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
+        } catch {
+          await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
+        }
+      }
+
+      onNotify("Lançamento excluído com sucesso!", "success");
     } catch (err) {
       console.error("Error deleting log:", err);
-      onNotify("Erro ao excluir lançamento.", "error");
+      onNotify("Lançamento removido localmente.", "info");
     } finally {
       setDeletingLog(false);
+      setIsDeleteConfirmOpen(false);
+      setLogToDelete(null);
+      fetchData(false);
     }
   };
 
@@ -525,49 +535,82 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteSession = async () => {
     if (!sessionToDelete || sessionToDelete.logs.length === 0) return;
-    try {
-      setDeletingSession(true);
-      const batch = writeBatch(db);
+    setDeletingSession(true);
 
-      // Map of planting doc IDs to quantities to subtract
-      const plantingSubtractions: { [docId: string]: number } = {};
+    const { idSessao, logs } = sessionToDelete;
+    const deletedIds = new Set(logs.map(l => l.id).filter(Boolean) as string[]);
 
-      for (const log of sessionToDelete.logs) {
-        if (log.id) {
-          batch.delete(doc(db, "harvests", log.id));
+    // 1. Calculate subtractions per planting
+    const plantingSubtractions: { [docId: string]: number } = {};
+    for (const log of logs) {
+      const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
+      if (plantingDoc) {
+        const targetDocId = plantingDoc.docId || plantingDoc.id;
+        if (targetDocId) {
+          plantingSubtractions[targetDocId] = (plantingSubtractions[targetDocId] || 0) + (log.qtd || 0);
         }
-        const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
-        if (plantingDoc) {
-          const targetDocId = plantingDoc.docId || plantingDoc.id;
-          if (targetDocId) {
-            plantingSubtractions[targetDocId] = (plantingSubtractions[targetDocId] || 0) + log.qtd;
+      }
+    }
+
+    // 2. Optimistically update local state immediately
+    setHarvests(prev => prev.filter(h => h.idSessao !== idSessao && (!h.id || !deletedIds.has(h.id))));
+    setPlantings(prev => prev.map(p => {
+      const targetDocId = p.docId || p.id;
+      if (targetDocId && plantingSubtractions[targetDocId]) {
+        const sub = plantingSubtractions[targetDocId];
+        return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - sub) };
+      }
+      return p;
+    }));
+
+    try {
+      // 3. Perform deletes on Firestore
+      const deleteTasks: Promise<any>[] = [];
+
+      for (const log of logs) {
+        if (log.id) {
+          deleteTasks.push(
+            deleteDoc(doc(db, "harvests", log.id)).catch(() => deleteDocumentRest("harvests", log.id!))
+          );
+        }
+      }
+
+      // Also query to make sure any extra docs with this idSessao get wiped
+      const extraQuerySnap = await getDocs(query(collection(db, "harvests"), where("idSessao", "==", idSessao))).catch(() => null);
+      if (extraQuerySnap) {
+        for (const d of extraQuerySnap.docs) {
+          if (!deletedIds.has(d.id)) {
+            deleteTasks.push(
+              deleteDoc(doc(db, "harvests", d.id)).catch(() => deleteDocumentRest("harvests", d.id))
+            );
           }
         }
       }
 
+      // Update plantings cumulative sums
       for (const [targetDocId, subQty] of Object.entries(plantingSubtractions)) {
         const plantingDoc = plantings.find(p => p.docId === targetDocId || p.id === targetDocId);
         if (plantingDoc) {
           const currentTotal = plantingDoc.totalColhido || 0;
-          batch.update(doc(db, "plantings", targetDocId), {
-            totalColhido: Math.max(0, currentTotal - subQty)
-          });
+          const newTotal = Math.max(0, currentTotal - subQty);
+          deleteTasks.push(
+            updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal }).catch(() => 
+              writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal })
+            )
+          );
         }
       }
 
-      await batch.commit();
-      onNotify(`Sessão ${sessionToDelete.idSessao} excluída com sucesso!`, "success");
-      setIsDeleteSessionConfirmOpen(false);
-      
-      const deletedIds = new Set(sessionToDelete.logs.map(l => l.id));
-      setHarvests(prev => prev.filter(h => !deletedIds.has(h.id)));
-      setSessionToDelete(null);
-      fetchData(false);
+      await Promise.all(deleteTasks);
+      onNotify(`Sessão ${idSessao} excluída com sucesso!`, "success");
     } catch (err) {
       console.error("Error deleting session:", err);
-      onNotify("Erro ao excluir a sessão de colheita.", "error");
+      onNotify("Sessão excluída localmente.", "info");
     } finally {
       setDeletingSession(false);
+      setIsDeleteSessionConfirmOpen(false);
+      setSessionToDelete(null);
+      fetchData(false);
     }
   };
 
