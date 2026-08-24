@@ -182,17 +182,36 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     setIsHistoryLogsOpen(true);
   };
 
+  const [isSwappingID, setIsSwappingID] = useState<boolean>(false);
+
   const handleOpenMudarID = (pId: string, cult: string, th: string) => {
     setSelectedPlantingId(pId);
     setSelectedPlantingCultura(cult);
     setSelectedPlantingTalhao(th);
-    setMudarIDTargetPlanting("");
+    
+    // Auto-select the first available planting for this crop if exists
+    const candidates = plantings.filter(
+      p => p.cultura.trim().toLowerCase() === cult.trim().toLowerCase() && 
+           p.id !== pId && 
+           p.docId !== pId && 
+           p.status !== "Finalizado"
+    );
+    if (candidates.length > 0) {
+      setMudarIDTargetPlanting(candidates[0].id || candidates[0].docId || "");
+    } else {
+      setMudarIDTargetPlanting("");
+    }
+    
     setIsMudarIDOpen(true);
   };
 
   const handleConfirmMudarID = async () => {
-    if (!selectedPlantingId) return;
+    if (!selectedPlantingId) {
+      onNotify("Nenhum canteiro de origem selecionado.", "error");
+      return;
+    }
     try {
+      setIsSwappingID(true);
       const batch = writeBatch(db);
       
       const currentDoc = plantings.find(p => p.id === selectedPlantingId || p.docId === selectedPlantingId);
@@ -202,7 +221,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
         status: "Finalizado",
         dataFim: activeDate,
         perdas: 0,
-        obs: "Finalizado via troca de ID"
+        obs: "Finalizado via troca de ID no app celular"
       });
 
       if (mudarIDTargetPlanting) {
@@ -217,10 +236,12 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
       await batch.commit();
       onNotify("ID transferido com sucesso!", "success");
       setIsMudarIDOpen(false);
-      fetchData(false);
+      await fetchData(false);
     } catch (err) {
       console.error("Error swapping planting IDs:", err);
-      onNotify("Erro ao transferir ID.", "error");
+      onNotify("Erro ao transferir ID: " + (err instanceof Error ? err.message : "Erro desconhecido"), "error");
+    } finally {
+      setIsSwappingID(false);
     }
   };
 
@@ -771,13 +792,18 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                 <select
                   value={mudarIDTargetPlanting}
                   onChange={(e) => setMudarIDTargetPlanting(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-rose-500"
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-rose-500"
                 >
                   <option value="">Apenas finalizar sem novo canteiro</option>
                   {plantings
-                    .filter(p => p.cultura === selectedPlantingCultura && p.id !== selectedPlantingId && p.status !== "Finalizado")
+                    .filter(
+                      p => p.cultura.trim().toLowerCase() === selectedPlantingCultura.trim().toLowerCase() && 
+                           p.id !== selectedPlantingId && 
+                           p.docId !== selectedPlantingId && 
+                           p.status !== "Finalizado"
+                    )
                     .map(p => (
-                      <option key={p.id} value={p.id}>
+                      <option key={p.id || p.docId} value={p.id || p.docId}>
                         {p.id} (Talhão {p.talhao}) - Status: {p.status}
                       </option>
                     ))}
@@ -787,17 +813,26 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={isSwappingID}
                   onClick={() => setIsMudarIDOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
+                  disabled={isSwappingID}
                   onClick={handleConfirmMudarID}
-                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition shadow-xs"
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  Confirmar Troca
+                  {isSwappingID ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Trocando...
+                    </>
+                  ) : (
+                    "Confirmar Troca"
+                  )}
                 </button>
               </div>
             </motion.div>
