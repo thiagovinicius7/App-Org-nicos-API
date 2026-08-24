@@ -153,6 +153,7 @@ export function toFirestoreValue(val: any): any {
 export async function writeDocumentRest(collectionId: string, documentId: string, data: any): Promise<any> {
   const projectId = firebaseConfig.projectId;
   const dbId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
+  const apiKey = firebaseConfig.apiKey || "";
   const fields: Record<string, any> = {};
   
   for (const key of Object.keys(data)) {
@@ -163,10 +164,14 @@ export async function writeDocumentRest(collectionId: string, documentId: string
 
   const queryParams = Object.keys(data)
     .filter(key => data[key] !== undefined)
-    .map(key => `updateMask.fieldPaths=${encodeURIComponent(key)}`)
-    .join("&");
+    .map(key => `updateMask.fieldPaths=${encodeURIComponent(key)}`);
+  
+  if (apiKey) {
+    queryParams.push(`key=${encodeURIComponent(apiKey)}`);
+  }
 
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionId}/${documentId}?${queryParams}`;
+  const queryString = queryParams.length > 0 ? `?${queryParams.join("&")}` : "";
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionId}/${documentId}${queryString}`;
 
   const response = await fetch(url, {
     method: "PATCH",
@@ -187,7 +192,9 @@ export async function writeDocumentRest(collectionId: string, documentId: string
 export async function deleteDocumentRest(collectionId: string, documentId: string): Promise<any> {
   const projectId = firebaseConfig.projectId;
   const dbId = (firebaseConfig as any).firestoreDatabaseId || "(default)";
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionId}/${documentId}`;
+  const apiKey = firebaseConfig.apiKey || "";
+  const queryParam = apiKey ? `?key=${encodeURIComponent(apiKey)}` : "";
+  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${dbId}/documents/${collectionId}/${documentId}${queryParam}`;
 
   const response = await fetch(url, {
     method: "DELETE",

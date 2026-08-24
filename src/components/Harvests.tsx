@@ -419,16 +419,22 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleSaveEditLog = async () => {
     if (!logToEdit || !logToEdit.id) return;
-    setSavingEditLog(true);
-
+    
     const diff = editLogQtd - logToEdit.qtd;
     const targetLogId = logToEdit.id;
     const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
     const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
+    const oldQty = logToEdit.qtd;
+    const newQty = editLogQtd;
 
-    // Optimistic local update
-    setHarvests(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: editLogQtd } : h));
-    setHistoricLogs(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: editLogQtd } : h));
+    // 1. Close modal and reset state immediately
+    setIsEditLogOpen(false);
+    setLogToEdit(null);
+    setSavingEditLog(false);
+
+    // 2. Optimistic local update
+    setHarvests(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
+    setHistoricLogs(prev => prev.map(h => h.id === targetLogId ? { ...h, qtd: newQty } : h));
     if (targetDocId && plantingDoc) {
       setPlantings(prev => prev.map(p => {
         if (p.docId === targetDocId || p.id === targetDocId) {
@@ -438,35 +444,35 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       }));
     }
 
-    try {
-      // 1. Update harvest log quantity
+    onNotify("Lançamento ajustado com sucesso!", "success");
+
+    // 3. Persist asynchronously in background
+    (async () => {
       try {
-        await updateDoc(doc(db, "harvests", targetLogId), { qtd: editLogQtd });
-      } catch {
-        await writeDocumentRest("harvests", targetLogId, { qtd: editLogQtd });
-      }
+        await Promise.race([
+          (async () => {
+            try {
+              await updateDoc(doc(db, "harvests", targetLogId), { qtd: newQty });
+            } catch {
+              await writeDocumentRest("harvests", targetLogId, { qtd: newQty });
+            }
 
-      // 2. Adjust planting's cumulative total
-      if (targetDocId && plantingDoc) {
-        const currentTotal = plantingDoc.totalColhido || 0;
-        const newTotal = Math.max(0, currentTotal + diff);
-        try {
-          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-        } catch {
-          await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
-        }
+            if (targetDocId && plantingDoc) {
+              const currentTotal = plantingDoc.totalColhido || 0;
+              const newTotal = Math.max(0, currentTotal + diff);
+              try {
+                await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
+              } catch {
+                await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
+              }
+            }
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+        ]);
+      } catch (err) {
+        console.warn("Background update sync:", err);
       }
-
-      onNotify("Lançamento ajustado com sucesso!", "success");
-    } catch (err) {
-      console.error("Error adjusting log:", err);
-      onNotify("Lançamento atualizado localmente.", "info");
-    } finally {
-      setSavingEditLog(false);
-      setIsEditLogOpen(false);
-      setLogToEdit(null);
-      fetchData(false);
-    }
+    })();
   };
 
   const handleOpenDeleteLog = (log: Harvest) => {
@@ -476,16 +482,18 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteLog = async () => {
     if (!logToDelete || !logToDelete.id) return;
-    setDeletingLog(true);
 
     const log = logToDelete;
     const deletedId = log.id!;
-
-    // Decrement calculation
     const plantingDoc = plantings.find(p => p.id === log.idPlantio || p.docId === log.idPlantio);
     const targetDocId = plantingDoc ? (plantingDoc.docId || plantingDoc.id) : null;
 
-    // Optimistic local state update
+    // 1. Close modal and notify immediately
+    setIsDeleteConfirmOpen(false);
+    setLogToDelete(null);
+    setDeletingLog(false);
+
+    // 2. Optimistic local state update
     setHarvests(prev => prev.filter(h => h.id !== deletedId));
     setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
     if (targetDocId && plantingDoc) {
@@ -497,35 +505,35 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       }));
     }
 
-    try {
-      // 1. Delete harvest doc
+    onNotify("Lançamento excluído com sucesso!", "success");
+
+    // 3. Persist deletion in background
+    (async () => {
       try {
-        await deleteDoc(doc(db, "harvests", deletedId));
-      } catch {
-        await deleteDocumentRest("harvests", deletedId);
-      }
+        await Promise.race([
+          (async () => {
+            try {
+              await deleteDoc(doc(db, "harvests", deletedId));
+            } catch {
+              await deleteDocumentRest("harvests", deletedId);
+            }
 
-      // 2. Decrement planting total in Firestore
-      if (targetDocId && plantingDoc) {
-        const currentTotal = plantingDoc.totalColhido || 0;
-        const newTotal = Math.max(0, currentTotal - log.qtd);
-        try {
-          await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
-        } catch {
-          await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
-        }
+            if (targetDocId && plantingDoc) {
+              const currentTotal = plantingDoc.totalColhido || 0;
+              const newTotal = Math.max(0, currentTotal - log.qtd);
+              try {
+                await updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal });
+              } catch {
+                await writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal });
+              }
+            }
+          })(),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 4000))
+        ]);
+      } catch (err) {
+        console.warn("Background deletion sync:", err);
       }
-
-      onNotify("Lançamento excluído com sucesso!", "success");
-    } catch (err) {
-      console.error("Error deleting log:", err);
-      onNotify("Lançamento removido localmente.", "info");
-    } finally {
-      setDeletingLog(false);
-      setIsDeleteConfirmOpen(false);
-      setLogToDelete(null);
-      fetchData(false);
-    }
+    })();
   };
 
   const handleOpenDeleteSession = (idSessao: string, logs: Harvest[]) => {
@@ -535,7 +543,6 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const handleConfirmDeleteSession = async () => {
     if (!sessionToDelete || sessionToDelete.logs.length === 0) return;
-    setDeletingSession(true);
 
     const { idSessao, logs } = sessionToDelete;
     const deletedIds = new Set(logs.map(l => l.id).filter(Boolean) as string[]);
@@ -552,7 +559,12 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       }
     }
 
-    // 2. Optimistically update local state immediately
+    // 2. Close modal and reset state immediately
+    setIsDeleteSessionConfirmOpen(false);
+    setSessionToDelete(null);
+    setDeletingSession(false);
+
+    // 3. Optimistically update local state immediately
     setHarvests(prev => prev.filter(h => h.idSessao !== idSessao && (!h.id || !deletedIds.has(h.id))));
     setPlantings(prev => prev.map(p => {
       const targetDocId = p.docId || p.id;
@@ -563,55 +575,43 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       return p;
     }));
 
-    try {
-      // 3. Perform deletes on Firestore
-      const deleteTasks: Promise<any>[] = [];
+    onNotify(`Sessão ${idSessao} excluída com sucesso!`, "success");
 
-      for (const log of logs) {
-        if (log.id) {
-          deleteTasks.push(
-            deleteDoc(doc(db, "harvests", log.id)).catch(() => deleteDocumentRest("harvests", log.id!))
-          );
-        }
-      }
+    // 4. Perform background deletes with fallback
+    (async () => {
+      try {
+        const deleteTasks: Promise<any>[] = [];
 
-      // Also query to make sure any extra docs with this idSessao get wiped
-      const extraQuerySnap = await getDocs(query(collection(db, "harvests"), where("idSessao", "==", idSessao))).catch(() => null);
-      if (extraQuerySnap) {
-        for (const d of extraQuerySnap.docs) {
-          if (!deletedIds.has(d.id)) {
+        for (const log of logs) {
+          if (log.id) {
             deleteTasks.push(
-              deleteDoc(doc(db, "harvests", d.id)).catch(() => deleteDocumentRest("harvests", d.id))
+              deleteDoc(doc(db, "harvests", log.id)).catch(() => deleteDocumentRest("harvests", log.id!))
             );
           }
         }
-      }
 
-      // Update plantings cumulative sums
-      for (const [targetDocId, subQty] of Object.entries(plantingSubtractions)) {
-        const plantingDoc = plantings.find(p => p.docId === targetDocId || p.id === targetDocId);
-        if (plantingDoc) {
-          const currentTotal = plantingDoc.totalColhido || 0;
-          const newTotal = Math.max(0, currentTotal - subQty);
-          deleteTasks.push(
-            updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal }).catch(() => 
-              writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal })
-            )
-          );
+        // Subtractions for plantings in DB
+        for (const [targetDocId, subQty] of Object.entries(plantingSubtractions)) {
+          const plantingDoc = plantings.find(p => p.docId === targetDocId || p.id === targetDocId);
+          if (plantingDoc) {
+            const currentTotal = plantingDoc.totalColhido || 0;
+            const newTotal = Math.max(0, currentTotal - subQty);
+            deleteTasks.push(
+              updateDoc(doc(db, "plantings", targetDocId), { totalColhido: newTotal }).catch(() => 
+                writeDocumentRest("plantings", targetDocId, { totalColhido: newTotal })
+              )
+            );
+          }
         }
-      }
 
-      await Promise.all(deleteTasks);
-      onNotify(`Sessão ${idSessao} excluída com sucesso!`, "success");
-    } catch (err) {
-      console.error("Error deleting session:", err);
-      onNotify("Sessão excluída localmente.", "info");
-    } finally {
-      setDeletingSession(false);
-      setIsDeleteSessionConfirmOpen(false);
-      setSessionToDelete(null);
-      fetchData(false);
-    }
+        await Promise.race([
+          Promise.all(deleteTasks),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000))
+        ]);
+      } catch (err) {
+        console.warn("Background session deletion sync:", err);
+      }
+    })();
   };
 
   // Filter canteiros that are actively on list
