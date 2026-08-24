@@ -45,6 +45,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
   const [isMudarIDOpen, setIsMudarIDOpen] = useState<boolean>(false);
   const [mudarIDTargetPlanting, setMudarIDTargetPlanting] = useState<string>("");
+  const [historyFilterMode, setHistoryFilterMode] = useState<"month" | "all">("month");
 
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [filterTalhao, setFilterTalhao] = useState<string>("Todos");
@@ -95,6 +96,15 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     if (!culturaName) return fallback || "kg";
     const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
     return found?.unidadeColheita || fallback || "kg";
+  };
+
+  const getPlantingHarvestedTotal = (p: Planting): number => {
+    const pId = p.id;
+    const pDocId = p.docId;
+    const harvestSum = harvests
+      .filter(h => (pId && h.idPlantio === pId) || (pDocId && h.idPlantio === pDocId))
+      .reduce((acc, h) => acc + (Number(h.qtd) || 0), 0);
+    return harvestSum > 0 ? harvestSum : (p.totalColhido || 0);
   };
 
   const getCalculatedStatus = (p: Planting) => {
@@ -339,29 +349,36 @@ export default function Harvests({ onNotify }: HarvestsProps) {
       }
 
       let itemsAdded = 0;
+      const newHarvestsToAdd: Harvest[] = [];
+
       const savePromises = entriesToSave.map(async ([pId, valStr]) => {
         const numericVal = parseFloat(valStr as string);
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
         if (!p) return;
 
+        const effectivePlantingId = p.id || p.docId || pId;
+
         // 1. Create harvest log
         const payload: Harvest = {
           idSessao: currentSession,
-          idPlantio: pId,
+          idPlantio: effectivePlantingId,
           data: activeDate,
           cultura: p.cultura,
           talhao: p.talhao,
           qtd: numericVal
         };
-        await addDoc(collection(db, "harvests"), payload);
+        const addedDoc = await addDoc(collection(db, "harvests"), payload);
+        newHarvestsToAdd.push({ ...payload, id: addedDoc.id });
 
         // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
+        const currentSum = getPlantingHarvestedTotal(p);
+        const newTotal = currentSum + numericVal;
+
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
-          const currentTotal = p.totalColhido || 0;
           await updateDoc(plantingRef, {
-            totalColhido: currentTotal + numericVal,
+            totalColhido: newTotal,
             status: "Colhendo"
           });
         }
@@ -370,12 +387,27 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
       await Promise.all(savePromises);
 
+      // Update local state immediately
+      setHarvests(prev => [...prev, ...newHarvestsToAdd]);
+      setPlantings(prev => prev.map(p => {
+        const matching = entriesToSave.find(([pId]) => p.id === pId || p.docId === pId);
+        if (matching) {
+          const addVal = parseFloat(matching[1] as string) || 0;
+          return {
+            ...p,
+            totalColhido: (p.totalColhido || 0) + addVal,
+            status: "Colhendo"
+          };
+        }
+        return p;
+      }));
+
       onNotify(`Sessão de colheita gravada com sucesso! (${itemsAdded} lançamentos)`, "success");
       setValoresSessao({});
-      fetchData(false);
+      await fetchData(false);
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
-      onNotify("Erro ao gravar colheita em lote.", "error");
+      onNotify("Erro ao gravar colheita em lote: " + (err instanceof Error ? err.message : ""), "error");
     }
   };
 
@@ -503,23 +535,25 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     return matchesSearch && matchesTalhao;
   });
 
-  // Nav Month history calculations
+  // History calculations
   const targetYear = mesAtual.getFullYear();
   const targetMonth = mesAtual.getMonth() + 1; // 1-indexed
 
-  const monthlyHarvests = harvests.filter(h => {
-    const parts = h.data.split("-");
-    if (parts.length === 3) {
-      const year = parseInt(parts[0]);
-      const month = parseInt(parts[1]);
-      return year === targetYear && month === targetMonth;
-    }
-    return false;
-  });
+  const displayedHarvests = historyFilterMode === "all"
+    ? harvests
+    : harvests.filter(h => {
+        const parts = h.data.split("-");
+        if (parts.length === 3) {
+          const year = parseInt(parts[0]);
+          const month = parseInt(parts[1]);
+          return year === targetYear && month === targetMonth;
+        }
+        return false;
+      });
 
-  // Group monthly logs by day and then by session ID
+  // Group logs by day and then by session ID
   const logsByDay: { [date: string]: { [sessao: string]: Harvest[] } } = {};
-  monthlyHarvests.forEach(h => {
+  displayedHarvests.forEach(h => {
     if (!logsByDay[h.data]) {
       logsByDay[h.data] = {};
     }
@@ -573,7 +607,17 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
           <button
             onClick={() => {
-              setViewMode(viewMode === "daily" ? "history" : "daily");
+              if (viewMode === "daily") {
+                if (activeDate) {
+                  const [y, m] = activeDate.split("-");
+                  if (y && m) {
+                    setMesAtual(new Date(parseInt(y), parseInt(m) - 1, 1));
+                  }
+                }
+                setViewMode("history");
+              } else {
+                setViewMode("daily");
+              }
               setModoColheitaAtivo(false);
               setSessaoColheitaAtual("");
             }}
@@ -752,7 +796,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
                                   </td>
                                   <td className="p-4 text-center text-xs">
                                     <div className="font-extrabold text-emerald-700 font-mono text-sm">
-                                      {p.totalColhido} {getCropHarvestUnit(p.cultura)}
+                                      {getPlantingHarvestedTotal(p)} {getCropHarvestUnit(p.cultura)}
                                     </div>
                                     <div className="text-[10px] text-slate-400 font-sans">
                                       Plantado: {p.quantidade} {p.unidade}
@@ -837,11 +881,38 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             exit={{ opacity: 0, y: -15 }}
             className="space-y-6"
           >
-            {/* Nav Month controller */}
-            <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-sm mx-auto font-bold">
-              <button onClick={() => handleNavMonth(-1)} className="p-2 hover:bg-slate-150 rounded-lg transition text-slate-500 hover:text-slate-700 cursor-pointer">◀</button>
-              <span className="font-bold text-slate-800 text-sm">{formatMonthLabel()}</span>
-              <button onClick={() => handleNavMonth(1)} className="p-2 hover:bg-slate-150 rounded-lg transition text-slate-500 hover:text-slate-700 cursor-pointer">▶</button>
+            {/* Nav Month / Filter controller */}
+            <div className="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm max-w-xl mx-auto gap-3">
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                <button
+                  onClick={() => setHistoryFilterMode("month")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    historyFilterMode === "month"
+                      ? "bg-white text-slate-800 shadow-xs"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  📅 Por Mês
+                </button>
+                <button
+                  onClick={() => setHistoryFilterMode("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                    historyFilterMode === "all"
+                      ? "bg-white text-slate-800 shadow-xs"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  📋 Ver Todos ({harvests.length})
+                </button>
+              </div>
+
+              {historyFilterMode === "month" && (
+                <div className="flex items-center gap-3 font-bold">
+                  <button onClick={() => handleNavMonth(-1)} className="p-2 hover:bg-slate-150 rounded-lg transition text-slate-500 hover:text-slate-700 cursor-pointer">◀</button>
+                  <span className="font-bold text-slate-800 text-sm min-w-[130px] text-center">{formatMonthLabel()}</span>
+                  <button onClick={() => handleNavMonth(1)} className="p-2 hover:bg-slate-150 rounded-lg transition text-slate-500 hover:text-slate-700 cursor-pointer">▶</button>
+                </div>
+              )}
             </div>
 
             {loading ? (
@@ -852,8 +923,24 @@ export default function Harvests({ onNotify }: HarvestsProps) {
             ) : sortedDays.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm text-center p-6">
                 <AlertCircle className="w-12 h-12 text-slate-300" />
-                <p className="text-sm font-semibold text-slate-700 mt-3">Nenhum registro encontrado para este mês.</p>
-                <p className="text-xs text-slate-400 mt-1">Sessões de colheitas gravadas aparecerão agrupadas aqui.</p>
+                <p className="text-sm font-semibold text-slate-700 mt-3">
+                  {historyFilterMode === "month" 
+                    ? `Nenhum registro encontrado para ${formatMonthLabel()}.` 
+                    : "Nenhum registro de colheita cadastrado."}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {historyFilterMode === "month" 
+                    ? "Tente navegar entre os meses ou clique em 'Ver Todos'." 
+                    : "Sessões de colheitas gravadas aparecerão aqui."}
+                </p>
+                {historyFilterMode === "month" && (
+                  <button
+                    onClick={() => setHistoryFilterMode("all")}
+                    className="mt-3 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg hover:bg-emerald-100 transition cursor-pointer"
+                  >
+                    Exibir Todos os Lançamentos ({harvests.length})
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-6">

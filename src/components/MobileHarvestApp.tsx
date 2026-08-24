@@ -96,6 +96,15 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     return found?.unidadeColheita || fallback || "kg";
   };
 
+  const getPlantingHarvestedTotal = (p: Planting): number => {
+    const pId = p.id;
+    const pDocId = p.docId;
+    const harvestSum = harvests
+      .filter(h => (pId && h.idPlantio === pId) || (pDocId && h.idPlantio === pDocId))
+      .reduce((acc, h) => acc + (Number(h.qtd) || 0), 0);
+    return harvestSum > 0 ? harvestSum : (p.totalColhido || 0);
+  };
+
   const [showNoCampo, setShowNoCampo] = useState<boolean>(false);
 
   const getCalculatedStatus = (p: Planting) => {
@@ -173,8 +182,12 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     setSelectedPlantingId(pId);
     setSelectedPlantingCultura(cult);
     
+    const pDoc = plantings.find(p => p.id === pId || p.docId === pId);
+    const targetId = pDoc?.id || pId;
+    const targetDocId = pDoc?.docId;
+
     const logs = harvests
-      .filter(h => h.idPlantio === pId)
+      .filter(h => h.idPlantio === pId || h.idPlantio === targetId || (targetDocId && h.idPlantio === targetDocId))
       .map(h => ({ data: h.data, qtd: h.qtd }))
       .sort((a, b) => b.data.localeCompare(a.data));
     
@@ -282,6 +295,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     try {
       setIsSaving(true);
       let itemsAdded = 0;
+      const newHarvestsToAdd: Harvest[] = [];
 
       // Use direct operations to prevent writeBatch hangs on mobile networks
       const savePromises = entriesToSave.map(async ([pId, valStr]) => {
@@ -289,24 +303,29 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
         if (!p) return;
 
+        const effectivePlantingId = p.id || p.docId || pId;
+
         // 1. Create harvest log
         const payload: Harvest = {
           idSessao: currentSession,
-          idPlantio: pId,
+          idPlantio: effectivePlantingId,
           data: activeDate,
           cultura: p.cultura,
           talhao: p.talhao,
           qtd: numericVal
         };
-        await addDoc(collection(db, "harvests"), payload);
+        const addedDoc = await addDoc(collection(db, "harvests"), payload);
+        newHarvestsToAdd.push({ ...payload, id: addedDoc.id });
 
         // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
+        const currentSum = getPlantingHarvestedTotal(p);
+        const newTotal = currentSum + numericVal;
+
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
-          const currentTotal = p.totalColhido || 0;
           await updateDoc(plantingRef, {
-            totalColhido: currentTotal + numericVal,
+            totalColhido: newTotal,
             status: "Colhendo"
           });
         }
@@ -314,6 +333,21 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
       });
 
       await Promise.all(savePromises);
+
+      // Update local state immediately
+      setHarvests(prev => [...prev, ...newHarvestsToAdd]);
+      setPlantings(prev => prev.map(p => {
+        const matching = entriesToSave.find(([pId]) => p.id === pId || p.docId === pId);
+        if (matching) {
+          const addVal = parseFloat(matching[1] as string) || 0;
+          return {
+            ...p,
+            totalColhido: (p.totalColhido || 0) + addVal,
+            status: "Colhendo"
+          };
+        }
+        return p;
+      }));
 
       onNotify(`Colheita gravada com sucesso! (${itemsAdded} itens)`, "success");
       setValoresSessao({});
@@ -594,7 +628,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                 {calcStatus}
                               </button>
                               <div className="text-xs font-mono font-bold text-emerald-700 mt-0.5">
-                                {p.totalColhido || 0} {getCropHarvestUnit(p.cultura)}
+                                {getPlantingHarvestedTotal(p)} {getCropHarvestUnit(p.cultura)}
                               </div>
                             </div>
                           </div>
