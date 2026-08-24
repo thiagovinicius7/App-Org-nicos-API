@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, updateDoc, doc, setDoc } from "firebase/firestore";
+import { collection, getDocs, updateDoc, doc, writeBatch } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
 import { 
@@ -96,15 +96,6 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     return found?.unidadeColheita || fallback || "kg";
   };
 
-  const getPlantingHarvestedTotal = (p: Planting): number => {
-    const pId = p.id;
-    const pDocId = p.docId;
-    const harvestSum = harvests
-      .filter(h => (pId && h.idPlantio === pId) || (pDocId && h.idPlantio === pDocId))
-      .reduce((acc, h) => acc + (Number(h.qtd) || 0), 0);
-    return harvestSum > 0 ? harvestSum : (p.totalColhido || 0);
-  };
-
   const [showNoCampo, setShowNoCampo] = useState<boolean>(false);
 
   const getCalculatedStatus = (p: Planting) => {
@@ -182,12 +173,8 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     setSelectedPlantingId(pId);
     setSelectedPlantingCultura(cult);
     
-    const pDoc = plantings.find(p => p.id === pId || p.docId === pId);
-    const targetId = pDoc?.id || pId;
-    const targetDocId = pDoc?.docId;
-
     const logs = harvests
-      .filter(h => h.idPlantio === pId || h.idPlantio === targetId || (targetDocId && h.idPlantio === targetDocId))
+      .filter(h => h.idPlantio === pId)
       .map(h => ({ data: h.data, qtd: h.qtd }))
       .sort((a, b) => b.data.localeCompare(a.data));
     
@@ -195,74 +182,45 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     setIsHistoryLogsOpen(true);
   };
 
-  const [isSwappingID, setIsSwappingID] = useState<boolean>(false);
-
   const handleOpenMudarID = (pId: string, cult: string, th: string) => {
     setSelectedPlantingId(pId);
     setSelectedPlantingCultura(cult);
     setSelectedPlantingTalhao(th);
-    
-    // Auto-select the first available planting for this crop if exists
-    const candidates = plantings.filter(
-      p => p.cultura.trim().toLowerCase() === cult.trim().toLowerCase() && 
-           p.id !== pId && 
-           p.docId !== pId && 
-           p.status !== "Finalizado"
-    );
-    if (candidates.length > 0) {
-      setMudarIDTargetPlanting(candidates[0].id || candidates[0].docId || "");
-    } else {
-      setMudarIDTargetPlanting("");
-    }
-    
+    setMudarIDTargetPlanting("");
     setIsMudarIDOpen(true);
   };
 
   const handleConfirmMudarID = async () => {
-    if (!selectedPlantingId) {
-      onNotify("Nenhum canteiro de origem selecionado.", "error");
-      return;
-    }
+    if (!selectedPlantingId) return;
     try {
-      setIsSwappingID(true);
+      const batch = writeBatch(db);
       
-      // 1. Find and finalize the current planting
       const currentDoc = plantings.find(p => p.id === selectedPlantingId || p.docId === selectedPlantingId);
       const currentDocId = currentDoc?.docId || currentDoc?.id || selectedPlantingId;
-      
-      if (!currentDocId) {
-        throw new Error("ID do canteiro atual não encontrado.");
-      }
-      
       const currentRef = doc(db, "plantings", currentDocId);
-      await updateDoc(currentRef, {
+      batch.update(currentRef, {
         status: "Finalizado",
         dataFim: activeDate,
         perdas: 0,
-        obs: "Finalizado via troca de ID no app celular"
+        obs: "Finalizado via troca de ID"
       });
 
-      // 2. Start harvest on the newly chosen planting if one was selected
       if (mudarIDTargetPlanting) {
         const nextDoc = plantings.find(p => p.id === mudarIDTargetPlanting || p.docId === mudarIDTargetPlanting);
         const nextDocId = nextDoc?.docId || nextDoc?.id || mudarIDTargetPlanting;
-        
-        if (nextDocId) {
-          const nextRef = doc(db, "plantings", nextDocId);
-          await updateDoc(nextRef, {
-            status: "Colhendo"
-          });
-        }
+        const nextRef = doc(db, "plantings", nextDocId);
+        batch.update(nextRef, {
+          status: "Colhendo"
+        });
       }
 
+      await batch.commit();
       onNotify("ID transferido com sucesso!", "success");
       setIsMudarIDOpen(false);
-      await fetchData(false);
+      fetchData(false);
     } catch (err) {
       console.error("Error swapping planting IDs:", err);
-      onNotify("Erro ao transferir ID: " + (err instanceof Error ? err.message : "Erro desconhecido"), "error");
-    } finally {
-      setIsSwappingID(false);
+      onNotify("Erro ao transferir ID.", "error");
     }
   };
 
@@ -294,79 +252,47 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
 
     try {
       setIsSaving(true);
+      const batch = writeBatch(db);
       let itemsAdded = 0;
-      const newHarvestsToAdd: Harvest[] = [];
 
-      const savePromises = entriesToSave.map(async ([pId, valStr]) => {
+      for (const [pId, valStr] of entriesToSave) {
         const numericVal = parseFloat(valStr as string);
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
-        if (!p) return;
+        if (!p) continue;
 
-        const effectivePlantingId = p.id || p.docId || pId;
-
-        // 1. Create harvest log using setDoc on generated ref
-        const harvestDocRef = doc(collection(db, "harvests"));
+        // Create log document
+        const newLogRef = doc(collection(db, "harvests"));
         const payload: Harvest = {
           idSessao: currentSession,
-          idPlantio: effectivePlantingId,
+          idPlantio: pId,
           data: activeDate,
           cultura: p.cultura,
           talhao: p.talhao,
           qtd: numericVal
         };
-        await setDoc(harvestDocRef, payload);
-        newHarvestsToAdd.push({ ...payload, id: harvestDocRef.id });
+        batch.set(newLogRef, payload);
 
-        // 2. Update planting total and status
+        // Update planting total
         const targetDocId = p.docId || p.id;
-        const currentSum = getPlantingHarvestedTotal(p);
-        const newTotal = currentSum + numericVal;
-
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
-          try {
-            await updateDoc(plantingRef, {
-              totalColhido: newTotal,
-              status: "Colhendo"
-            });
-          } catch (updateErr) {
-            console.warn("Retrying planting update with setDoc merge:", updateErr);
-            await setDoc(plantingRef, {
-              totalColhido: newTotal,
-              status: "Colhendo"
-            }, { merge: true });
-          }
+          const currentTotal = p.totalColhido || 0;
+          batch.update(plantingRef, {
+            totalColhido: currentTotal + numericVal,
+            status: "Colhendo"
+          });
         }
         itemsAdded++;
-      });
+      }
 
-      // Wrap in Promise.all
-      await Promise.all(savePromises);
-
-      // Update local state immediately for instant feedback
-      setHarvests(prev => [...prev, ...newHarvestsToAdd]);
-      setPlantings(prev => prev.map(p => {
-        const matching = entriesToSave.find(([pId]) => p.id === pId || p.docId === pId);
-        if (matching) {
-          const addVal = parseFloat(matching[1] as string) || 0;
-          return {
-            ...p,
-            totalColhido: (p.totalColhido || 0) + addVal,
-            status: "Colhendo"
-          };
-        }
-        return p;
-      }));
-
+      await batch.commit();
       onNotify(`Colheita gravada com sucesso! (${itemsAdded} itens)`, "success");
       setValoresSessao({});
-      setIsSaving(false);
-
-      // Sync fresh data from server in the background
-      fetchData(false).catch(err => console.warn("Background fetch warning:", err));
+      fetchData(false);
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
-      onNotify("Erro ao gravar colheita: " + (err instanceof Error ? err.message : "Erro de conexão"), "error");
+      onNotify("Erro ao gravar colheita.", "error");
+    } finally {
       setIsSaving(false);
     }
   };
@@ -639,7 +565,7 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                                 {calcStatus}
                               </button>
                               <div className="text-xs font-mono font-bold text-emerald-700 mt-0.5">
-                                {getPlantingHarvestedTotal(p)} {getCropHarvestUnit(p.cultura)}
+                                {p.totalColhido || 0} {getCropHarvestUnit(p.cultura)}
                               </div>
                             </div>
                           </div>
@@ -845,18 +771,13 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                 <select
                   value={mudarIDTargetPlanting}
                   onChange={(e) => setMudarIDTargetPlanting(e.target.value)}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-rose-500"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 outline-none focus:border-rose-500"
                 >
                   <option value="">Apenas finalizar sem novo canteiro</option>
                   {plantings
-                    .filter(
-                      p => p.cultura.trim().toLowerCase() === selectedPlantingCultura.trim().toLowerCase() && 
-                           p.id !== selectedPlantingId && 
-                           p.docId !== selectedPlantingId && 
-                           p.status !== "Finalizado"
-                    )
+                    .filter(p => p.cultura === selectedPlantingCultura && p.id !== selectedPlantingId && p.status !== "Finalizado")
                     .map(p => (
-                      <option key={p.id || p.docId} value={p.id || p.docId}>
+                      <option key={p.id} value={p.id}>
                         {p.id} (Talhão {p.talhao}) - Status: {p.status}
                       </option>
                     ))}
@@ -866,26 +787,17 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
-                  disabled={isSwappingID}
                   onClick={() => setIsMudarIDOpen(false)}
-                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
                 >
                   Cancelar
                 </button>
                 <button
                   type="button"
-                  disabled={isSwappingID}
                   onClick={handleConfirmMudarID}
-                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 active:scale-95 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition shadow-xs"
                 >
-                  {isSwappingID ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Trocando...
-                    </>
-                  ) : (
-                    "Confirmar Troca"
-                  )}
+                  Confirmar Troca
                 </button>
               </div>
             </motion.div>

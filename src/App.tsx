@@ -152,47 +152,6 @@ export default function App() {
     { id: "guide" as const, label: "Guia de Uso", icon: HelpCircle },
   ];
 
-  // Mobile Harvest view (accessible directly via QR Code / Mobile Link)
-  if (activeTab === "mobile_harvest") {
-    return (
-      <div className="min-h-screen bg-slate-900">
-        <MobileHarvestApp 
-          onNotify={addNotification} 
-          onExitMobile={() => setActiveTab("dashboard")} 
-        />
-        {/* Floating Notifications */}
-        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4">
-          <AnimatePresence>
-            {notifications.map((n) => (
-              <motion.div
-                key={n.id}
-                initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -20, scale: 0.95 }}
-                className={`p-4 rounded-xl shadow-lg border text-xs font-semibold flex items-start gap-3 pointer-events-auto ${
-                  n.type === "success"
-                    ? "bg-emerald-50 border-emerald-100 text-emerald-800"
-                    : n.type === "error"
-                    ? "bg-rose-50 border-rose-100 text-rose-800"
-                    : "bg-indigo-50 border-indigo-100 text-indigo-800"
-                }`}
-              >
-                {n.type === "success" ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                ) : n.type === "error" ? (
-                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                ) : (
-                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                )}
-                <div className="flex-1">{n.msg}</div>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
-    );
-  }
-
   if (loadingAuth) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
@@ -276,6 +235,46 @@ export default function App() {
 
         {/* Global Floating Notifications inside Login */}
         <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none print:hidden px-4">
+          <AnimatePresence>
+            {notifications.map((n) => (
+              <motion.div
+                key={n.id}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -20, scale: 0.95 }}
+                className={`p-4 rounded-xl shadow-lg border text-xs font-semibold flex items-start gap-3 pointer-events-auto ${
+                  n.type === "success"
+                    ? "bg-emerald-50 border-emerald-100 text-emerald-800"
+                    : n.type === "error"
+                    ? "bg-rose-50 border-rose-100 text-rose-800"
+                    : "bg-indigo-50 border-indigo-100 text-indigo-800"
+                }`}
+              >
+                {n.type === "success" ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                ) : n.type === "error" ? (
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                ) : (
+                  <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                )}
+                <div className="flex-1">{n.msg}</div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      </div>
+    );
+  }
+
+  if (activeTab === "mobile_harvest") {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <MobileHarvestApp 
+          onNotify={addNotification} 
+          onExitMobile={() => setActiveTab("dashboard")} 
+        />
+        {/* Floating Notifications */}
+        <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4">
           <AnimatePresence>
             {notifications.map((n) => (
               <motion.div

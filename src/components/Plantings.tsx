@@ -34,15 +34,6 @@ export default function Plantings({ onNotify }: PlantingsProps) {
     const found = crops.find(c => c.nome.toLowerCase().trim() === culturaName.toLowerCase().trim());
     return found?.unidadeColheita || fallback || "kg";
   };
-
-  const getPlantingHarvestedTotal = (p: Planting): number => {
-    const pId = p.id;
-    const pDocId = p.docId;
-    const harvestSum = harvests
-      .filter(h => (pId && h.idPlantio === pId) || (pDocId && h.idPlantio === pDocId))
-      .reduce((acc, h) => acc + (Number(h.qtd) || 0), 0);
-    return harvestSum > 0 ? harvestSum : (p.totalColhido || 0);
-  };
   
   const [viewMode, setViewMode] = useState<"actives" | "finalized" | "create">("actives");
   
@@ -583,9 +574,8 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           </thead>
                           <tbody className="divide-y divide-slate-100">
                             {groupItems.map((p) => {
-                              const totalColhidoCalc = getPlantingHarvestedTotal(p);
                               const pct = p.tipo === "Muda" && p.quantidade > 0 
-                                ? Math.min(100, (totalColhidoCalc / p.quantidade) * 100).toFixed(1) + "%" 
+                                ? Math.min(100, (p.totalColhido / p.quantidade) * 100).toFixed(1) + "%" 
                                 : "—";
                               return (
                                 <tr key={p.id} className="hover:bg-slate-50/40 transition">
@@ -595,7 +585,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                                   <td className="p-4 text-center text-slate-500 text-xs font-medium">{formatToBrazDate(p.data)}</td>
                                   <td className="p-4 text-center text-xs font-bold text-indigo-600">{formatToBrazDate(p.previsao) || "—"}</td>
                                   <td className="p-4 text-center text-xs">
-                                    <div className="font-bold text-slate-800">{totalColhidoCalc} {getCropHarvestUnit(p.cultura, p.unidade)}</div>
+                                    <div className="font-bold text-slate-800">{p.totalColhido} {getCropHarvestUnit(p.cultura, p.unidade)}</div>
                                     <div className="text-[10px] text-slate-400 font-medium">de {p.quantidade} {p.unidade} ({pct})</div>
                                   </td>
                                   <td className="p-4 text-right">
@@ -722,7 +712,7 @@ export default function Plantings({ onNotify }: PlantingsProps) {
                           <td className="p-4 text-center font-semibold text-slate-700">{p.talhao}</td>
                           <td className="p-4 text-center text-xs font-medium">{formatToBrazDate(p.data)}</td>
                           <td className="p-4 text-center text-xs font-bold text-rose-600">{formatToBrazDate(p.dataFim || "")}</td>
-                          <td className="p-4 text-center text-xs font-bold text-emerald-600">{getPlantingHarvestedTotal(p)} {getCropHarvestUnit(p.cultura, p.unidade)}</td>
+                          <td className="p-4 text-center text-xs font-bold text-emerald-600">{p.totalColhido} {getCropHarvestUnit(p.cultura, p.unidade)}</td>
                           <td className="p-4 text-center text-xs font-bold text-red-600">{p.perdas || 0}</td>
                           <td className="p-4 text-right">
                             <button

@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User } from "firebase/auth";
 import firebaseConfig from "../../firebase-applet-config.json";
 
@@ -7,7 +7,10 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firestore with the explicit database ID
 const dbId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-geraniumorgnicos-ad2fe72c-1e2c-497d-96f9-642f8693882f";
-export const db = getFirestore(app, dbId);
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  localCache: memoryLocalCache(),
+}, dbId);
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
