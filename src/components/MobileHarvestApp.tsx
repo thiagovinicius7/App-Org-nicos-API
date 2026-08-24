@@ -12,7 +12,9 @@ import {
   ArrowLeftRight, 
   X, 
   Search, 
-  Sprout 
+  Sprout,
+  Trash2,
+  Edit2
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -42,7 +44,16 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
   const [selectedPlantingTalhao, setSelectedPlantingTalhao] = useState<string>("");
   
   const [isHistoryLogsOpen, setIsHistoryLogsOpen] = useState<boolean>(false);
-  const [historicLogs, setHistoricLogs] = useState<{ data: string; qtd: number }[]>([]);
+  const [historicLogs, setHistoricLogs] = useState<Harvest[]>([]);
+
+  const [isEditLogOpen, setIsEditLogOpen] = useState<boolean>(false);
+  const [logToEdit, setLogToEdit] = useState<Harvest | null>(null);
+  const [editLogQtd, setEditLogQtd] = useState<number>(0);
+  const [savingEditLog, setSavingEditLog] = useState<boolean>(false);
+
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState<boolean>(false);
+  const [logToDelete, setLogToDelete] = useState<Harvest | null>(null);
+  const [deletingLog, setDeletingLog] = useState<boolean>(false);
 
   const [isMudarIDOpen, setIsMudarIDOpen] = useState<boolean>(false);
   const [mudarIDTargetPlanting, setMudarIDTargetPlanting] = useState<string>("");
@@ -175,11 +186,117 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     
     const logs = harvests
       .filter(h => h.idPlantio === pId)
-      .map(h => ({ data: h.data, qtd: h.qtd }))
       .sort((a, b) => b.data.localeCompare(a.data));
     
     setHistoricLogs(logs);
     setIsHistoryLogsOpen(true);
+  };
+
+  const handleOpenEditLog = (log: Harvest) => {
+    setLogToEdit(log);
+    setEditLogQtd(log.qtd);
+    setIsEditLogOpen(true);
+  };
+
+  const handleSaveEditLog = async () => {
+    if (!logToEdit || !logToEdit.id) return;
+    try {
+      setSavingEditLog(true);
+      const batch = writeBatch(db);
+
+      const diff = editLogQtd - logToEdit.qtd;
+
+      // 1. Update harvest log quantity
+      const logRef = doc(db, "harvests", logToEdit.id);
+      batch.update(logRef, { qtd: editLogQtd });
+
+      // 2. Adjust planting's cumulative total
+      const plantingDoc = plantings.find(p => p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio);
+      if (plantingDoc) {
+        const targetDocId = plantingDoc.docId || plantingDoc.id;
+        if (targetDocId) {
+          const plantingRef = doc(db, "plantings", targetDocId);
+          const currentTotal = plantingDoc.totalColhido || 0;
+          batch.update(plantingRef, {
+            totalColhido: Math.max(0, currentTotal + diff)
+          });
+        }
+      }
+
+      await batch.commit();
+      onNotify("Lançamento ajustado com sucesso!", "success");
+      setIsEditLogOpen(false);
+      
+      // Update local state immediately
+      setHarvests(prev => prev.map(h => h.id === logToEdit.id ? { ...h, qtd: editLogQtd } : h));
+      setHistoricLogs(prev => prev.map(h => h.id === logToEdit.id ? { ...h, qtd: editLogQtd } : h));
+      setPlantings(prev => prev.map(p => {
+        if (p.id === logToEdit.idPlantio || p.docId === logToEdit.idPlantio) {
+          return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) + diff) };
+        }
+        return p;
+      }));
+
+      fetchData(false);
+    } catch (err) {
+      console.error("Error adjusting log:", err);
+      onNotify("Erro ao ajustar o lançamento.", "error");
+    } finally {
+      setSavingEditLog(false);
+    }
+  };
+
+  const handleOpenDeleteLog = (log: Harvest) => {
+    setLogToDelete(log);
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDeleteLog = async () => {
+    if (!logToDelete || !logToDelete.id) return;
+    try {
+      setDeletingLog(true);
+      const batch = writeBatch(db);
+
+      // 1. Delete harvest log doc
+      const logRef = doc(db, "harvests", logToDelete.id);
+      batch.delete(logRef);
+
+      // 2. Decrement planting's running total
+      const plantingDoc = plantings.find(p => p.id === logToDelete.idPlantio || p.docId === logToDelete.idPlantio);
+      if (plantingDoc) {
+        const targetDocId = plantingDoc.docId || plantingDoc.id;
+        if (targetDocId) {
+          const plantingRef = doc(db, "plantings", targetDocId);
+          const currentTotal = plantingDoc.totalColhido || 0;
+          batch.update(plantingRef, {
+            totalColhido: Math.max(0, currentTotal - logToDelete.qtd)
+          });
+        }
+      }
+
+      await batch.commit();
+      onNotify("Lançamento excluído com sucesso!", "success");
+      setIsDeleteConfirmOpen(false);
+      
+      // Update local state immediately
+      const deletedId = logToDelete.id;
+      setHarvests(prev => prev.filter(h => h.id !== deletedId));
+      setHistoricLogs(prev => prev.filter(h => h.id !== deletedId));
+      setPlantings(prev => prev.map(p => {
+        if (p.id === logToDelete.idPlantio || p.docId === logToDelete.idPlantio) {
+          return { ...p, totalColhido: Math.max(0, (p.totalColhido || 0) - logToDelete.qtd) };
+        }
+        return p;
+      }));
+      setLogToDelete(null);
+
+      fetchData(false);
+    } catch (err) {
+      console.error("Error deleting log:", err);
+      onNotify("Erro ao excluir lançamento.", "error");
+    } finally {
+      setDeletingLog(false);
+    }
   };
 
   const handleOpenMudarID = (pId: string, cult: string, th: string) => {
@@ -714,14 +831,33 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-4 max-h-60 overflow-y-auto divide-y divide-slate-100">
+              <div className="p-4 max-h-72 overflow-y-auto divide-y divide-slate-100">
                 {historicLogs.length === 0 ? (
                   <p className="text-xs text-slate-400 text-center py-4">Nenhuma colheita registrada para este canteiro.</p>
                 ) : (
-                  historicLogs.map((log, idx) => (
-                    <div key={idx} className="py-2 flex justify-between items-center text-xs">
-                      <span className="font-medium text-slate-600">{log.data.split("-").reverse().join("/")}</span>
-                      <span className="font-bold font-mono text-emerald-700">{log.qtd} {getCropHarvestUnit(selectedPlantingCultura)}</span>
+                  historicLogs.map((log) => (
+                    <div key={log.id || `${log.data}-${log.qtd}`} className="py-2.5 flex justify-between items-center text-xs">
+                      <div>
+                        <span className="font-medium text-slate-700 block">{log.data.split("-").reverse().join("/")}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{log.idSessao}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold font-mono text-emerald-700 text-xs mr-1">{log.qtd} {getCropHarvestUnit(selectedPlantingCultura)}</span>
+                        <button
+                          onClick={() => handleOpenEditLog(log)}
+                          className="p-1.5 hover:bg-indigo-50 text-indigo-600 rounded-lg transition"
+                          title="Ajustar quantidade"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleOpenDeleteLog(log)}
+                          className="p-1.5 hover:bg-rose-50 text-rose-600 rounded-lg transition"
+                          title="Excluir este lançamento"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -732,6 +868,142 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
                   className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-xl"
                 >
                   Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Log Modal (Mobile) */}
+      <AnimatePresence>
+        {isEditLogOpen && logToEdit && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-sm rounded-2xl border border-slate-200 shadow-xl overflow-hidden space-y-4 p-5"
+            >
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">Ajustar Quantidade Colhida</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {logToEdit.cultura} (Talhão: {logToEdit.talhao})
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsEditLogOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider">
+                  Nova Quantidade ({getCropHarvestUnit(logToEdit.cultura)}):
+                </label>
+                <input
+                  type="number"
+                  required
+                  min="0.1"
+                  step="0.01"
+                  value={editLogQtd}
+                  onChange={(e) => setEditLogQtd(Math.max(0, parseFloat(e.target.value) || 0))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono font-bold text-slate-800 outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditLogOpen(false)}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditLog}
+                  disabled={savingEditLog}
+                  className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center gap-1"
+                >
+                  {savingEditLog && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Atualizar
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Confirm Delete Single Log Modal (Mobile) */}
+      <AnimatePresence>
+        {isDeleteConfirmOpen && logToDelete && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white w-full max-w-sm rounded-2xl border border-slate-200 shadow-xl overflow-hidden space-y-4 p-5"
+            >
+              <div className="flex justify-between items-start">
+                <div className="flex items-center gap-2 text-rose-600 font-bold">
+                  <Trash2 className="w-5 h-5" />
+                  <h3 className="text-sm">Excluir Lançamento</h3>
+                </div>
+                <button
+                  onClick={() => !deletingLog && setIsDeleteConfirmOpen(false)}
+                  disabled={deletingLog}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                <p className="text-slate-600">Deseja realmente remover esta colheita?</p>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Cultura:</span>
+                    <span className="font-bold text-slate-800">{logToDelete.cultura}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Talhão:</span>
+                    <span className="font-bold text-slate-800">{logToDelete.talhao}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Data:</span>
+                    <span className="font-mono font-bold text-slate-800">{logToDelete.data.split("-").reverse().join("/")}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Quantidade:</span>
+                    <span className="font-mono font-bold text-rose-600">{logToDelete.qtd} {getCropHarvestUnit(logToDelete.cultura)}</span>
+                  </div>
+                </div>
+                <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                  ⚠️ O acumulado colhido deste canteiro será recalculado automaticamente.
+                </p>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteConfirmOpen(false)}
+                  disabled={deletingLog}
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteLog}
+                  disabled={deletingLog}
+                  className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-xl transition shadow-xs flex items-center justify-center gap-1"
+                >
+                  {deletingLog && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  Sim, Excluir
                 </button>
               </div>
             </motion.div>
