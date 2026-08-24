@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, updateDoc, doc, writeBatch } from "firebase/firestore";
+import { collection, getDocs, updateDoc, doc, addDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
 import { 
@@ -281,16 +281,15 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
 
     try {
       setIsSaving(true);
-      const batch = writeBatch(db);
       let itemsAdded = 0;
 
-      for (const [pId, valStr] of entriesToSave) {
+      // Use direct operations to prevent writeBatch hangs on mobile networks
+      const savePromises = entriesToSave.map(async ([pId, valStr]) => {
         const numericVal = parseFloat(valStr as string);
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
-        if (!p) continue;
+        if (!p) return;
 
-        // Create log document
-        const newLogRef = doc(collection(db, "harvests"));
+        // 1. Create harvest log
         const payload: Harvest = {
           idSessao: currentSession,
           idPlantio: pId,
@@ -299,28 +298,29 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
           talhao: p.talhao,
           qtd: numericVal
         };
-        batch.set(newLogRef, payload);
+        await addDoc(collection(db, "harvests"), payload);
 
-        // Update planting total
+        // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
           const currentTotal = p.totalColhido || 0;
-          batch.update(plantingRef, {
+          await updateDoc(plantingRef, {
             totalColhido: currentTotal + numericVal,
             status: "Colhendo"
           });
         }
         itemsAdded++;
-      }
+      });
 
-      await batch.commit();
+      await Promise.all(savePromises);
+
       onNotify(`Colheita gravada com sucesso! (${itemsAdded} itens)`, "success");
       setValoresSessao({});
-      fetchData(false);
+      await fetchData(false);
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
-      onNotify("Erro ao gravar colheita.", "error");
+      onNotify("Erro ao gravar colheita: " + (err instanceof Error ? err.message : "Erro de conexão"), "error");
     } finally {
       setIsSaving(false);
     }

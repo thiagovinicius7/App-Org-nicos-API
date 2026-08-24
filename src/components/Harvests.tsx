@@ -328,18 +328,23 @@ export default function Harvests({ onNotify }: HarvestsProps) {
     }
 
     try {
-      const batch = writeBatch(db);
+      const entriesToSave = Object.entries(valoresSessao).filter(([_, valStr]) => {
+        const n = parseFloat(valStr as string);
+        return !isNaN(n) && n > 0;
+      });
+
+      if (entriesToSave.length === 0) {
+        onNotify("Nenhuma quantidade válida preenchida.", "info");
+        return;
+      }
+
       let itemsAdded = 0;
-
-      for (const [pId, valStr] of Object.entries(valoresSessao)) {
+      const savePromises = entriesToSave.map(async ([pId, valStr]) => {
         const numericVal = parseFloat(valStr as string);
-        if (!numericVal || numericVal <= 0) continue;
-
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
-        if (!p) continue;
+        if (!p) return;
 
-        // Create log document
-        const newLogRef = doc(collection(db, "harvests"));
+        // 1. Create harvest log
         const payload: Harvest = {
           idSessao: currentSession,
           idPlantio: pId,
@@ -348,27 +353,23 @@ export default function Harvests({ onNotify }: HarvestsProps) {
           talhao: p.talhao,
           qtd: numericVal
         };
-        batch.set(newLogRef, payload);
+        await addDoc(collection(db, "harvests"), payload);
 
-        // Update planting total
+        // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
           const currentTotal = p.totalColhido || 0;
-          batch.update(plantingRef, {
+          await updateDoc(plantingRef, {
             totalColhido: currentTotal + numericVal,
             status: "Colhendo"
           });
         }
         itemsAdded++;
-      }
+      });
 
-      if (itemsAdded === 0) {
-        onNotify("Nenhuma quantidade válida preenchida.", "info");
-        return;
-      }
+      await Promise.all(savePromises);
 
-      await batch.commit();
       onNotify(`Sessão de colheita gravada com sucesso! (${itemsAdded} lançamentos)`, "success");
       setValoresSessao({});
       fetchData(false);
