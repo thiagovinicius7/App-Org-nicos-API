@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, updateDoc, doc, addDoc } from "firebase/firestore";
+import { collection, getDocs, updateDoc, doc, setDoc } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
 import { 
@@ -297,7 +297,6 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
       let itemsAdded = 0;
       const newHarvestsToAdd: Harvest[] = [];
 
-      // Use direct operations to prevent writeBatch hangs on mobile networks
       const savePromises = entriesToSave.map(async ([pId, valStr]) => {
         const numericVal = parseFloat(valStr as string);
         const p = plantings.find(pl => pl.id === pId || pl.docId === pId);
@@ -305,7 +304,8 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
 
         const effectivePlantingId = p.id || p.docId || pId;
 
-        // 1. Create harvest log
+        // 1. Create harvest log using setDoc on generated ref
+        const harvestDocRef = doc(collection(db, "harvests"));
         const payload: Harvest = {
           idSessao: currentSession,
           idPlantio: effectivePlantingId,
@@ -314,8 +314,8 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
           talhao: p.talhao,
           qtd: numericVal
         };
-        const addedDoc = await addDoc(collection(db, "harvests"), payload);
-        newHarvestsToAdd.push({ ...payload, id: addedDoc.id });
+        await setDoc(harvestDocRef, payload);
+        newHarvestsToAdd.push({ ...payload, id: harvestDocRef.id });
 
         // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
@@ -324,17 +324,26 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
 
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
-          await updateDoc(plantingRef, {
-            totalColhido: newTotal,
-            status: "Colhendo"
-          });
+          try {
+            await updateDoc(plantingRef, {
+              totalColhido: newTotal,
+              status: "Colhendo"
+            });
+          } catch (updateErr) {
+            console.warn("Retrying planting update with setDoc merge:", updateErr);
+            await setDoc(plantingRef, {
+              totalColhido: newTotal,
+              status: "Colhendo"
+            }, { merge: true });
+          }
         }
         itemsAdded++;
       });
 
+      // Wrap in Promise.all
       await Promise.all(savePromises);
 
-      // Update local state immediately
+      // Update local state immediately for instant feedback
       setHarvests(prev => [...prev, ...newHarvestsToAdd]);
       setPlantings(prev => prev.map(p => {
         const matching = entriesToSave.find(([pId]) => p.id === pId || p.docId === pId);
@@ -351,11 +360,13 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
 
       onNotify(`Colheita gravada com sucesso! (${itemsAdded} itens)`, "success");
       setValoresSessao({});
-      await fetchData(false);
+      setIsSaving(false);
+
+      // Sync fresh data from server in the background
+      fetchData(false).catch(err => console.warn("Background fetch warning:", err));
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
       onNotify("Erro ao gravar colheita: " + (err instanceof Error ? err.message : "Erro de conexão"), "error");
-    } finally {
       setIsSaving(false);
     }
   };

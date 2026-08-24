@@ -8,7 +8,6 @@ const app = initializeApp(firebaseConfig);
 // Initialize Firestore with the explicit database ID
 const dbId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-geraniumorgnicos-ad2fe72c-1e2c-497d-96f9-642f8693882f";
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
   localCache: memoryLocalCache(),
 }, dbId);
 

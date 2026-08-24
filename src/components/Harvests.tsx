@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { collection, getDocs, addDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
+import { collection, getDocs, setDoc, updateDoc, doc, deleteDoc, writeBatch, query, where } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { Planting, Harvest, Crop } from "../types";
 import { Calendar, AlertCircle, Play, Save, ChevronRight, ChevronDown, Check, Loader2, ArrowLeftRight, Trash2, Edit2, Clock, X, Smartphone, QrCode } from "lucide-react";
@@ -358,7 +358,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
         const effectivePlantingId = p.id || p.docId || pId;
 
-        // 1. Create harvest log
+        // 1. Create harvest log using setDoc
+        const harvestDocRef = doc(collection(db, "harvests"));
         const payload: Harvest = {
           idSessao: currentSession,
           idPlantio: effectivePlantingId,
@@ -367,8 +368,8 @@ export default function Harvests({ onNotify }: HarvestsProps) {
           talhao: p.talhao,
           qtd: numericVal
         };
-        const addedDoc = await addDoc(collection(db, "harvests"), payload);
-        newHarvestsToAdd.push({ ...payload, id: addedDoc.id });
+        await setDoc(harvestDocRef, payload);
+        newHarvestsToAdd.push({ ...payload, id: harvestDocRef.id });
 
         // 2. Update planting total and status
         const targetDocId = p.docId || p.id;
@@ -377,10 +378,18 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
         if (targetDocId) {
           const plantingRef = doc(db, "plantings", targetDocId);
-          await updateDoc(plantingRef, {
-            totalColhido: newTotal,
-            status: "Colhendo"
-          });
+          try {
+            await updateDoc(plantingRef, {
+              totalColhido: newTotal,
+              status: "Colhendo"
+            });
+          } catch (updateErr) {
+            console.warn("Retrying planting update with setDoc merge:", updateErr);
+            await setDoc(plantingRef, {
+              totalColhido: newTotal,
+              status: "Colhendo"
+            }, { merge: true });
+          }
         }
         itemsAdded++;
       });
@@ -404,7 +413,7 @@ export default function Harvests({ onNotify }: HarvestsProps) {
 
       onNotify(`Sessão de colheita gravada com sucesso! (${itemsAdded} lançamentos)`, "success");
       setValoresSessao({});
-      await fetchData(false);
+      fetchData(false).catch(err => console.warn("Background fetch warning:", err));
     } catch (err) {
       console.error("Error bulk saving harvests:", err);
       onNotify("Erro ao gravar colheita em lote: " + (err instanceof Error ? err.message : ""), "error");
