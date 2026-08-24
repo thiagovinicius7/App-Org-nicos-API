@@ -212,28 +212,36 @@ export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarve
     }
     try {
       setIsSwappingID(true);
-      const batch = writeBatch(db);
       
+      // 1. Find and finalize the current planting
       const currentDoc = plantings.find(p => p.id === selectedPlantingId || p.docId === selectedPlantingId);
       const currentDocId = currentDoc?.docId || currentDoc?.id || selectedPlantingId;
+      
+      if (!currentDocId) {
+        throw new Error("ID do canteiro atual não encontrado.");
+      }
+      
       const currentRef = doc(db, "plantings", currentDocId);
-      batch.update(currentRef, {
+      await updateDoc(currentRef, {
         status: "Finalizado",
         dataFim: activeDate,
         perdas: 0,
         obs: "Finalizado via troca de ID no app celular"
       });
 
+      // 2. Start harvest on the newly chosen planting if one was selected
       if (mudarIDTargetPlanting) {
         const nextDoc = plantings.find(p => p.id === mudarIDTargetPlanting || p.docId === mudarIDTargetPlanting);
         const nextDocId = nextDoc?.docId || nextDoc?.id || mudarIDTargetPlanting;
-        const nextRef = doc(db, "plantings", nextDocId);
-        batch.update(nextRef, {
-          status: "Colhendo"
-        });
+        
+        if (nextDocId) {
+          const nextRef = doc(db, "plantings", nextDocId);
+          await updateDoc(nextRef, {
+            status: "Colhendo"
+          });
+        }
       }
 
-      await batch.commit();
       onNotify("ID transferido com sucesso!", "success");
       setIsMudarIDOpen(false);
       await fetchData(false);
