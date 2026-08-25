@@ -56,9 +56,62 @@ export async function seedDatabaseIfEmpty() {
       console.log("Seeding system metadata/certifications...");
       await setDoc(doc(metadataCol, "geranium"), {
         seloValidade: "2026-04-03",
-        seloVisita: "2025-12-12"
+        seloVisita: "2025-12-12",
+        seloCertificadora: "IBD Certificações",
+        seloNumero: "IBD-ORG-0842"
       });
       console.log("Metadata seeding completed!");
+    }
+
+    const licensesCol = collection(db, "licenses");
+    const licensesSnapshot = await getDocs(licensesCol);
+    if (licensesSnapshot.empty) {
+      console.log("Seeding default compliance licenses...");
+      const batch = writeBatch(db);
+      
+      const defaultLicenses = [
+        {
+          titulo: "Selo Orgânico Certificado",
+          orgaoEmissor: "IBD Certificações",
+          numeroRegistro: "IBD-ORG-0842",
+          tipo: "Selo Orgânico",
+          dataEmissao: "2025-12-12",
+          dataValidade: "2026-04-03",
+          responsavel: "Auditoria Anual IBD",
+          observacoes: "Certificação da produção vegetal orgânica em conformidade com as diretrizes do MAPA.",
+          ativo: true
+        },
+        {
+          titulo: "Outorga de Direito de Uso da Água",
+          orgaoEmissor: "ADASA / ANA",
+          numeroRegistro: "ADASA-OUT-2024/09",
+          tipo: "Outorga de Água",
+          dataEmissao: "2024-06-15",
+          dataValidade: "2027-06-15",
+          responsavel: "Engenharia Agronômica",
+          observacoes: "Captação de água subterrânea (Poço Tubular) para irrigação e higienização de canteiros.",
+          ativo: true
+        },
+        {
+          titulo: "Cadastro Ambiental Rural (CAR)",
+          orgaoEmissor: "SICAR / IBRAM-DF",
+          numeroRegistro: "DF-5300108-CAR-01",
+          tipo: "CAR",
+          dataEmissao: "2023-01-10",
+          dataValidade: "2028-12-31",
+          responsavel: "Gestão Ambiental",
+          observacoes: "Registro obrigatório do imóvel rural e áreas de preservação permanente.",
+          ativo: true
+        }
+      ];
+
+      defaultLicenses.forEach(lic => {
+        const newDoc = doc(licensesCol);
+        batch.set(newDoc, lic);
+      });
+
+      await batch.commit();
+      console.log("Licenses seeding completed!");
     }
   } catch (error) {
     console.error("Error during database seeding:", error);

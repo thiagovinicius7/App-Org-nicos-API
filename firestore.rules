@@ -26,6 +26,11 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    // Licenses & Compliance Records Collection
+    match /licenses/{licenseId} {
+      allow read, write: if true;
+    }
+
     // Authorized Emails Collection
     match /authorized_emails/{emailId} {
       allow read, write: if true;

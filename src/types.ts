@@ -65,4 +65,29 @@ export interface SystemMetadata {
   id?: string;
   seloValidade: string;
   seloVisita: string;
+  seloCertificadora?: string;
+  seloNumero?: string;
+}
+
+export type LicenseType = 
+  | "Selo Orgânico" 
+  | "Outorga de Água" 
+  | "Licença Ambiental" 
+  | "Alvará" 
+  | "Laudo Técnico" 
+  | "CAR" 
+  | "Outro";
+
+export interface LicenseRecord {
+  id?: string;
+  docId?: string;
+  titulo: string; // e.g., "Selo Orgânico IBD", "Outorga de Água - Poço 01"
+  orgaoEmissor: string; // e.g., "IBD Certificações", "ADASA / ANA", "IBRAM"
+  numeroRegistro?: string; // e.g., "IBD-ORG-0842", "OUT-DF-2024/09"
+  tipo: LicenseType;
+  dataEmissao?: string; // YYYY-MM-DD (Última auditoria / emissão)
+  dataValidade: string; // YYYY-MM-DD (Data de renovação / vencimento)
+  responsavel?: string; // Responsável técnico ou contato
+  observacoes?: string;
+  ativo?: boolean;
 }

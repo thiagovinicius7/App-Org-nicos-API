@@ -501,7 +501,7 @@ export default function App() {
               exit={{ opacity: 0, y: -10 }}
               transition={{ duration: 0.15 }}
             >
-              {activeTab === "dashboard" && <Dashboard />}
+              {activeTab === "dashboard" && <Dashboard onChangeTab={setActiveTab} onNotify={addNotification} />}
               {activeTab === "crops" && <Crops onNotify={addNotification} />}
               {activeTab === "purchases" && <Purchases onNotify={addNotification} />}
               {activeTab === "plantings" && <Plantings onNotify={addNotification} />}

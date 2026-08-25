@@ -206,6 +206,50 @@
         }
       },
       "required": ["email"]
+    },
+    "license": {
+      "title": "License & Compliance Record",
+      "description": "Certifications, environmental licenses, water permits, organic stamps and renewal dates",
+      "type": "object",
+      "properties": {
+        "titulo": {
+          "type": "string",
+          "description": "Name or title of certificate or license"
+        },
+        "orgaoEmissor": {
+          "type": "string",
+          "description": "Issuing agency or certification body"
+        },
+        "numeroRegistro": {
+          "type": "string",
+          "description": "Registration, permit, or certificate number"
+        },
+        "tipo": {
+          "type": "string",
+          "description": "License type: Selo Orgânico, Outorga de Água, Licença Ambiental, Alvará, Laudo Técnico, CAR, Outro"
+        },
+        "dataEmissao": {
+          "type": "string",
+          "description": "Issue or last audit date (YYYY-MM-DD)"
+        },
+        "dataValidade": {
+          "type": "string",
+          "description": "Expiration or next renewal date (YYYY-MM-DD)"
+        },
+        "responsavel": {
+          "type": "string",
+          "description": "Responsible person or technician"
+        },
+        "observacoes": {
+          "type": "string",
+          "description": "Additional notes or process tracking numbers"
+        },
+        "ativo": {
+          "type": "boolean",
+          "description": "Whether license is currently active"
+        }
+      },
+      "required": ["titulo", "orgaoEmissor", "tipo", "dataValidade"]
     }
   },
   "firestore": {
@@ -228,6 +272,10 @@
     "/metadata/{metaId}": {
       "schema": "metadata",
       "description": "Collection of global system configurations and certificate dates"
+    },
+    "/licenses/{licenseId}": {
+      "schema": "license",
+      "description": "Collection of certificates, water rights permits, environmental licenses and renewal dates"
     },
     "/authorized_emails/{emailId}": {
       "schema": "authorized_email",
