@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Dashboard from "./components/Dashboard";
 import Crops from "./components/Crops";
 import Purchases from "./components/Purchases";
@@ -76,10 +76,11 @@ export default function App() {
 
   // Login form state
   const [loginMethod, setLoginMethod] = useState<"credentials" | "google">("credentials");
-  const [usernameInput, setUsernameInput] = useState<string>("Certificadora");
-  const [passwordInput, setPasswordInput] = useState<string>("87654321");
+  const [usernameInput, setUsernameInput] = useState<string>("");
+  const [passwordInput, setPasswordInput] = useState<string>("");
   const [showPassword, setShowPassword] = useState<boolean>(false);
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -223,24 +224,14 @@ export default function App() {
     }
   };
 
-  const handleQuickCertificadoraLogin = async () => {
+  const handleSelectCertificadoraUser = () => {
+    setLoginMethod("credentials");
     setUsernameInput("Certificadora");
-    setPasswordInput("87654321");
+    setPasswordInput("");
     setCredentialsError(null);
-    try {
-      setIsSigningIn(true);
-      const systemUser = await loginWithCredentials("Certificadora", "87654321");
-      if (systemUser) {
-        setUser(systemUser);
-        setUnauthorizedEmail(null);
-        addNotification("Acesso liberado para Certificadora com sucesso!", "success");
-        seedDatabaseIfEmpty().catch(console.error);
-      }
-    } catch (err) {
-      setCredentialsError("Erro ao entrar com a Certificadora.");
-    } finally {
-      setIsSigningIn(false);
-    }
+    setTimeout(() => {
+      passwordInputRef.current?.focus();
+    }, 50);
   };
 
   const menuItems = [
@@ -281,23 +272,23 @@ export default function App() {
             Painel integrado de cultivos, estoque, canteiros, colheitas e rastreabilidade da Geranium Orgânicos.
           </p>
 
-          {/* Quick Certificadora Highlight Banner */}
-          <div className="w-full mt-5 p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between text-left gap-3">
+          {/* Quick Certificadora Access Box */}
+          <div className="w-full mt-5 p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between text-left gap-3">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0">
                 <Shield className="w-4 h-4" />
               </div>
               <div className="min-w-0">
-                <div className="text-xs font-black text-emerald-950 truncate">Acesso Certificadora / Auditor</div>
-                <div className="text-[11px] text-emerald-700">Usuário: <strong className="font-bold">Certificadora</strong> | Senha: <strong className="font-bold">87654321</strong></div>
+                <div className="text-xs font-black text-emerald-950 truncate">Acesso Certificadora</div>
+                <div className="text-[11px] text-emerald-700">Clique para selecionar e digitar a senha</div>
               </div>
             </div>
             <button
-              onClick={handleQuickCertificadoraLogin}
-              disabled={isSigningIn}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shrink-0 cursor-pointer shadow-xs"
+              type="button"
+              onClick={handleSelectCertificadoraUser}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shrink-0 cursor-pointer shadow-xs"
             >
-              Entrar Direto
+              Entrar como Certificadora
             </button>
           </div>
 
@@ -384,6 +375,7 @@ export default function App() {
                 <div className="relative">
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    ref={passwordInputRef}
                     type={showPassword ? "text" : "password"}
                     value={passwordInput}
                     onChange={(e) => setPasswordInput(e.target.value)}
