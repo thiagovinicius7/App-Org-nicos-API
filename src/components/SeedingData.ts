@@ -113,6 +113,24 @@ export async function seedDatabaseIfEmpty() {
       await batch.commit();
       console.log("Licenses seeding completed!");
     }
+
+    // Seed authorized emails if not present
+    const authEmailsCol = collection(db, "authorized_emails");
+    const authEmailsSnapshot = await getDocs(authEmailsCol);
+    if (authEmailsSnapshot.empty) {
+      console.log("Seeding authorized admin emails...");
+      const admins = ["thiagovinicius7@gmail.com", "rafaelmorenocampos@gmail.com"];
+      for (const mail of admins) {
+        const id = mail.replace(/[^a-zA-Z0-9_.]/g, "_");
+        await setDoc(doc(authEmailsCol, id), {
+          email: mail,
+          addedBy: "Sistema (Administrador Inicial)",
+          addedAt: new Date().toISOString(),
+          role: "admin"
+        });
+      }
+      console.log("Authorized emails seeding completed!");
+    }
   } catch (error) {
     console.error("Error during database seeding:", error);
   }

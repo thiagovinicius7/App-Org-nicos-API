@@ -1,4 +1,4 @@
-import { collection, getDocs, setDoc, deleteDoc, doc } from "firebase/firestore";
+import { collection, getDocs, getDoc, setDoc, deleteDoc, doc } from "firebase/firestore";
 import { db } from "./firebase";
 
 export interface AuthorizedEmail {
@@ -6,59 +6,113 @@ export interface AuthorizedEmail {
   email: string;
   addedBy?: string;
   addedAt?: string;
+  role?: "admin" | "user";
 }
 
-const DEFAULT_ADMIN_EMAIL = "thiagovinicius7@gmail.com";
+export const PERMANENT_ADMIN_EMAILS = [
+  "thiagovinicius7@gmail.com",
+  "rafaelmorenocampos@gmail.com"
+];
 
 /**
- * Checks if the given email is authorized in Firestore.
- * If the collection is empty, seeds the DEFAULT_ADMIN_EMAIL and current email.
+ * Normalizes email to lowercase and trimmed string
+ */
+export function normalizeEmail(email: string): string {
+  return email ? email.trim().toLowerCase() : "";
+}
+
+/**
+ * Creates a safe Firestore document ID from an email address
+ */
+export function getEmailDocId(email: string): string {
+  return normalizeEmail(email).replace(/[^a-zA-Z0-9_.]/g, "_");
+}
+
+/**
+ * Checks if the given email is authorized to access the system.
+ * Always allows permanent admin emails and checks Firestore for others.
  */
 export async function isEmailAuthorized(email: string): Promise<boolean> {
   if (!email) return false;
-  const cleanEmail = email.trim().toLowerCase();
+  const cleanEmail = normalizeEmail(email);
 
-  // Instant bypass for main administrator
-  if (cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) {
+  // 1. Instant bypass for permanent administrators (instant access, 0 latency)
+  if (PERMANENT_ADMIN_EMAILS.some(admin => admin.toLowerCase() === cleanEmail)) {
+    // Background async sync to ensure it exists in Firestore collection
+    syncAdminEmailToFirestore(cleanEmail).catch(console.error);
     return true;
   }
 
+  const docId = getEmailDocId(cleanEmail);
+
   try {
-    const colRef = collection(db, "authorized_emails");
-    
-    // Fail-safe 3s timeout for Firestore call
-    const fetchPromise = getDocs(colRef);
+    // 2. Direct document lookup (fast, single document read)
+    const directDocPromise = getDoc(doc(db, "authorized_emails", docId));
     const timeoutPromise = new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout ao verificar autorização no banco")), 3000)
+      setTimeout(() => reject(new Error("Timeout ao verificar autorização no banco")), 8000)
     );
 
-    const snapshot = (await Promise.race([fetchPromise, timeoutPromise])) as any;
+    const docSnap = (await Promise.race([directDocPromise, timeoutPromise])) as any;
+    if (docSnap && docSnap.exists()) {
+      return true;
+    }
+
+    // 3. Fallback: query collection in case document ID had a different format
+    const colRef = collection(db, "authorized_emails");
+    const snapshot = await getDocs(colRef);
 
     if (snapshot.empty) {
       console.log("authorized_emails collection empty. Seeding initial authorized emails...");
-      // Seed default admin email and the first logging user
-      const initialEmails = Array.from(new Set([DEFAULT_ADMIN_EMAIL.toLowerCase(), cleanEmail]));
+      // Seed default admin emails and current user
+      const initialEmails = Array.from(new Set([...PERMANENT_ADMIN_EMAILS, cleanEmail]));
       for (const mail of initialEmails) {
-        const docId = mail.replace(/[^a-zA-Z0-9_.]/g, "_");
-        await setDoc(doc(db, "authorized_emails", docId), {
+        const id = getEmailDocId(mail);
+        await setDoc(doc(db, "authorized_emails", id), {
           email: mail,
           addedBy: "Sistema (Inicialização)",
-          addedAt: new Date().toISOString()
+          addedAt: new Date().toISOString(),
+          role: PERMANENT_ADMIN_EMAILS.includes(mail) ? "admin" : "user"
         });
       }
       return true;
     }
 
-    // Check if cleanEmail exists in existing documents
-    const docs = snapshot.docs.map(d => d.data());
-    const isAllowed = docs.some(d => d.email && d.email.trim().toLowerCase() === cleanEmail);
+    // Check if cleanEmail matches any document in the collection
+    const isAllowed = snapshot.docs.some(d => {
+      const data = d.data();
+      return data.email && normalizeEmail(data.email) === cleanEmail;
+    });
 
     return isAllowed;
   } catch (err) {
     console.error("Erro ao verificar e-mail autorizado:", err);
-    // In case of Firestore read issues or timeouts, allow owner/admin email
-    if (cleanEmail === DEFAULT_ADMIN_EMAIL.toLowerCase()) return true;
+    // In case of Firestore connection issues, allow permanent admins
+    if (PERMANENT_ADMIN_EMAILS.some(admin => admin.toLowerCase() === cleanEmail)) {
+      return true;
+    }
     return false;
+  }
+}
+
+/**
+ * Ensures permanent admin emails exist in Firestore
+ */
+async function syncAdminEmailToFirestore(email: string) {
+  try {
+    const docId = getEmailDocId(email);
+    const docRef = doc(db, "authorized_emails", docId);
+    const snap = await getDoc(docRef);
+    if (!snap.exists()) {
+      await setDoc(docRef, {
+        email: normalizeEmail(email),
+        addedBy: "Sistema (Administrador Padrão)",
+        addedAt: new Date().toISOString(),
+        role: "admin"
+      });
+    }
+  } catch (err) {
+    // Non-critical background sync
+    console.warn("Async sync admin email error:", err);
   }
 }
 
@@ -69,32 +123,51 @@ export async function getAuthorizedEmails(): Promise<AuthorizedEmail[]> {
   try {
     const colRef = collection(db, "authorized_emails");
     const snapshot = await getDocs(colRef);
-    const list: AuthorizedEmail[] = snapshot.docs.map(d => ({
-      id: d.id,
-      email: d.data().email || "",
-      addedBy: d.data().addedBy,
-      addedAt: d.data().addedAt
-    }));
+    const map = new Map<string, AuthorizedEmail>();
 
-    // Ensure default admin is in list if list is empty
-    if (list.length === 0) {
-      list.push({
-        id: DEFAULT_ADMIN_EMAIL.replace(/[^a-zA-Z0-9_.]/g, "_"),
-        email: DEFAULT_ADMIN_EMAIL,
-        addedBy: "Sistema",
-        addedAt: new Date().toISOString()
-      });
+    // Add entries from Firestore
+    snapshot.docs.forEach(d => {
+      const data = d.data();
+      const mail = normalizeEmail(data.email || "");
+      if (mail) {
+        map.set(mail, {
+          id: d.id,
+          email: mail,
+          addedBy: data.addedBy,
+          addedAt: data.addedAt,
+          role: PERMANENT_ADMIN_EMAILS.includes(mail) ? "admin" : (data.role || "user")
+        });
+      }
+    });
+
+    // Ensure permanent admins are always included in the list
+    for (const adminEmail of PERMANENT_ADMIN_EMAILS) {
+      const norm = normalizeEmail(adminEmail);
+      if (!map.has(norm)) {
+        const id = getEmailDocId(norm);
+        const item: AuthorizedEmail = {
+          id,
+          email: norm,
+          addedBy: "Sistema (Administrador)",
+          addedAt: new Date().toISOString(),
+          role: "admin"
+        };
+        map.set(norm, item);
+        // Persist to firestore asynchronously
+        setDoc(doc(db, "authorized_emails", id), item).catch(console.error);
+      }
     }
 
-    return list.sort((a, b) => a.email.localeCompare(b.email));
+    return Array.from(map.values()).sort((a, b) => a.email.localeCompare(b.email));
   } catch (err) {
     console.error("Erro ao buscar e-mails autorizados:", err);
-    return [{
-      id: DEFAULT_ADMIN_EMAIL.replace(/[^a-zA-Z0-9_.]/g, "_"),
-      email: DEFAULT_ADMIN_EMAIL,
+    return PERMANENT_ADMIN_EMAILS.map(email => ({
+      id: getEmailDocId(email),
+      email: normalizeEmail(email),
       addedBy: "Sistema (Fallback)",
-      addedAt: new Date().toISOString()
-    }];
+      addedAt: new Date().toISOString(),
+      role: "admin"
+    }));
   }
 }
 
@@ -102,16 +175,17 @@ export async function getAuthorizedEmails(): Promise<AuthorizedEmail[]> {
  * Adds a new email to the authorized_emails collection.
  */
 export async function addAuthorizedEmail(newEmail: string, addedByEmail: string): Promise<void> {
-  const cleanEmail = newEmail.trim().toLowerCase();
+  const cleanEmail = normalizeEmail(newEmail);
   if (!cleanEmail || !cleanEmail.includes("@")) {
     throw new Error("Por favor, informe um endereço de e-mail válido.");
   }
 
-  const docId = cleanEmail.replace(/[^a-zA-Z0-9_.]/g, "_");
+  const docId = getEmailDocId(cleanEmail);
   await setDoc(doc(db, "authorized_emails", docId), {
     email: cleanEmail,
     addedBy: addedByEmail || "Administrador",
-    addedAt: new Date().toISOString()
+    addedAt: new Date().toISOString(),
+    role: PERMANENT_ADMIN_EMAILS.includes(cleanEmail) ? "admin" : "user"
   });
 }
 
@@ -121,3 +195,4 @@ export async function addAuthorizedEmail(newEmail: string, addedByEmail: string)
 export async function removeAuthorizedEmail(docId: string): Promise<void> {
   await deleteDoc(doc(db, "authorized_emails", docId));
 }
+

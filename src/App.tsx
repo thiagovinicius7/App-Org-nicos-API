@@ -11,7 +11,7 @@ import MobileHarvestApp from "./components/MobileHarvestApp";
 import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
 import { auth, googleSignIn, logout } from "./lib/firebase";
-import { isEmailAuthorized } from "./lib/authorizedEmails";
+import { isEmailAuthorized, PERMANENT_ADMIN_EMAILS, normalizeEmail } from "./lib/authorizedEmails";
 import AuthorizedEmailsModal from "./components/AuthorizedEmailsModal";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { 
@@ -96,7 +96,10 @@ export default function App() {
         } catch (err) {
           console.error("Auth check error:", err);
           if (isSubscribed) {
-            if (currentUser.email.trim().toLowerCase() === "thiagovinicius7@gmail.com") {
+            const isPermAdmin = PERMANENT_ADMIN_EMAILS.some(
+              admin => normalizeEmail(admin) === normalizeEmail(currentUser.email || "")
+            );
+            if (isPermAdmin) {
               setUser(currentUser);
               setUnauthorizedEmail(null);
             } else {
