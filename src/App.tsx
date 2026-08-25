@@ -12,6 +12,12 @@ import GeraniumLogo from "./components/GeraniumLogo";
 import { seedDatabaseIfEmpty } from "./components/SeedingData";
 import { auth, googleSignIn, logout } from "./lib/firebase";
 import { isEmailAuthorized, PERMANENT_ADMIN_EMAILS, normalizeEmail } from "./lib/authorizedEmails";
+import { 
+  loginWithCredentials, 
+  getSavedSystemUserSession, 
+  clearSystemUserSession, 
+  AppAuthUser 
+} from "./lib/systemAuth";
 import AuthorizedEmailsModal from "./components/AuthorizedEmailsModal";
 import { onAuthStateChanged, User } from "firebase/auth";
 import { 
@@ -32,7 +38,12 @@ import {
   LogOut,
   ShieldCheck,
   Lock,
-  Smartphone
+  Smartphone,
+  UserCheck,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Shield
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 
@@ -57,14 +68,29 @@ export default function App() {
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<AppAuthUser | null>(() => getSavedSystemUserSession());
   const [loadingAuth, setLoadingAuth] = useState<boolean>(true);
   const [isSigningIn, setIsSigningIn] = useState<boolean>(false);
   const [unauthorizedEmail, setUnauthorizedEmail] = useState<string | null>(null);
   const [isAuthorizedModalOpen, setIsAuthorizedModalOpen] = useState<boolean>(false);
 
+  // Login form state
+  const [loginMethod, setLoginMethod] = useState<"credentials" | "google">("credentials");
+  const [usernameInput, setUsernameInput] = useState<string>("Certificadora");
+  const [passwordInput, setPasswordInput] = useState<string>("87654321");
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
+
   useEffect(() => {
     let isSubscribed = true;
+
+    // If already logged in via saved system session (e.g. Certificadora), finish loading immediately
+    const savedUser = getSavedSystemUserSession();
+    if (savedUser) {
+      setUser(savedUser);
+      setLoadingAuth(false);
+      seedDatabaseIfEmpty().catch(console.error);
+    }
 
     // Safety fallback timer: guarantee loadingAuth turns off within 2.5 seconds
     const fallbackTimer = setTimeout(() => {
@@ -78,13 +104,33 @@ export default function App() {
       clearTimeout(fallbackTimer);
       if (!isSubscribed) return;
 
+      // If user is already logged in as a system user (Certificadora), don't override unless Google user logged in
+      if (!currentUser) {
+        if (!getSavedSystemUserSession()) {
+          if (isSubscribed) {
+            setUser(null);
+            setLoadingAuth(false);
+          }
+        } else {
+          if (isSubscribed) setLoadingAuth(false);
+        }
+        return;
+      }
+
       if (currentUser && currentUser.email) {
         setLoadingAuth(true);
         try {
           const authorized = await isEmailAuthorized(currentUser.email);
           if (isSubscribed) {
             if (authorized) {
-              setUser(currentUser);
+              const authUser: AppAuthUser = {
+                uid: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email.split("@")[0],
+                email: currentUser.email,
+                photoURL: currentUser.photoURL,
+                role: "admin"
+              };
+              setUser(authUser);
               setUnauthorizedEmail(null);
               seedDatabaseIfEmpty().catch(console.error);
             } else {
@@ -100,7 +146,13 @@ export default function App() {
               admin => normalizeEmail(admin) === normalizeEmail(currentUser.email || "")
             );
             if (isPermAdmin) {
-              setUser(currentUser);
+              setUser({
+                uid: currentUser.uid,
+                displayName: currentUser.displayName || currentUser.email.split("@")[0],
+                email: currentUser.email,
+                photoURL: currentUser.photoURL,
+                role: "admin"
+              });
               setUnauthorizedEmail(null);
             } else {
               setUser(null);
@@ -108,11 +160,6 @@ export default function App() {
           }
         } finally {
           if (isSubscribed) setLoadingAuth(false);
-        }
-      } else {
-        if (isSubscribed) {
-          setUser(null);
-          setLoadingAuth(false);
         }
       }
     });
@@ -136,10 +183,63 @@ export default function App() {
 
   const handleLogout = async () => {
     try {
-      await logout();
+      clearSystemUserSession();
+      await logout().catch(() => {});
+      setUser(null);
       addNotification("Sessão encerrada com sucesso.", "success");
     } catch (err: any) {
       addNotification("Erro ao desconectar da conta.", "error");
+    }
+  };
+
+  const handleCredentialsSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCredentialsError(null);
+
+    if (!usernameInput.trim()) {
+      setCredentialsError("Informe o nome de usuário ou e-mail.");
+      return;
+    }
+    if (!passwordInput.trim()) {
+      setCredentialsError("Informe a senha de acesso.");
+      return;
+    }
+
+    try {
+      setIsSigningIn(true);
+      const systemUser = await loginWithCredentials(usernameInput, passwordInput);
+      if (systemUser) {
+        setUser(systemUser);
+        setUnauthorizedEmail(null);
+        addNotification(`Acesso liberado! Bem-vindo(a), ${systemUser.displayName}!`, "success");
+        seedDatabaseIfEmpty().catch(console.error);
+      } else {
+        setCredentialsError("Usuário ou senha incorretos. Verifique os dados digitados.");
+      }
+    } catch (err: any) {
+      setCredentialsError("Erro ao autenticar. Tente novamente.");
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleQuickCertificadoraLogin = async () => {
+    setUsernameInput("Certificadora");
+    setPasswordInput("87654321");
+    setCredentialsError(null);
+    try {
+      setIsSigningIn(true);
+      const systemUser = await loginWithCredentials("Certificadora", "87654321");
+      if (systemUser) {
+        setUser(systemUser);
+        setUnauthorizedEmail(null);
+        addNotification("Acesso liberado para Certificadora com sucesso!", "success");
+        seedDatabaseIfEmpty().catch(console.error);
+      }
+    } catch (err) {
+      setCredentialsError("Erro ao entrar com a Certificadora.");
+    } finally {
+      setIsSigningIn(false);
     }
   };
 
@@ -170,70 +270,207 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-linear-to-b from-slate-50 to-emerald-50/20 flex flex-col items-center justify-center p-6 text-slate-800 font-sans">
-        <div className="w-full max-w-md bg-white border border-slate-200/80 rounded-3xl p-8 shadow-xl flex flex-col items-center text-center">
-          <GeraniumLogo variant="full" size={240} className="mb-6 hover:scale-[1.02] transition duration-300" />
+      <div className="min-h-screen bg-linear-to-b from-slate-50 to-emerald-50/20 flex flex-col items-center justify-center p-4 sm:p-6 text-slate-800 font-sans">
+        <div className="w-full max-w-md bg-white border border-slate-200/80 rounded-3xl p-6 sm:p-8 shadow-xl flex flex-col items-center text-center">
+          <GeraniumLogo variant="full" size={220} className="mb-4 hover:scale-[1.02] transition duration-300" />
           
-          <h1 className="font-sans font-extrabold text-2xl tracking-tight text-slate-900 mt-2">
+          <h1 className="font-sans font-extrabold text-2xl tracking-tight text-slate-900 mt-1">
             Área de Acesso Seguro
           </h1>
-          <p className="text-sm text-slate-500 mt-3 max-w-sm leading-relaxed">
-            Faça login com sua conta autorizada para gerenciar cultivos, estoque, canteiros, colheitas e rastreabilidade da Geranium Orgânicos.
+          <p className="text-xs sm:text-sm text-slate-500 mt-2 max-w-sm leading-relaxed">
+            Painel integrado de cultivos, estoque, canteiros, colheitas e rastreabilidade da Geranium Orgânicos.
           </p>
 
+          {/* Quick Certificadora Highlight Banner */}
+          <div className="w-full mt-5 p-3 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-center justify-between text-left gap-3">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0">
+                <Shield className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-black text-emerald-950 truncate">Acesso Certificadora / Auditor</div>
+                <div className="text-[11px] text-emerald-700">Usuário: <strong className="font-bold">Certificadora</strong> | Senha: <strong className="font-bold">87654321</strong></div>
+              </div>
+            </div>
+            <button
+              onClick={handleQuickCertificadoraLogin}
+              disabled={isSigningIn}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shrink-0 cursor-pointer shadow-xs"
+            >
+              Entrar Direto
+            </button>
+          </div>
+
+          {/* Login Method Tabs */}
+          <div className="w-full mt-4 p-1 bg-slate-100 rounded-2xl flex text-xs font-bold">
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMethod("credentials");
+                setCredentialsError(null);
+              }}
+              className={`flex-1 py-2 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                loginMethod === "credentials"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200/50"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Usuário e Senha
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLoginMethod("google");
+                setCredentialsError(null);
+              }}
+              className={`flex-1 py-2 rounded-xl transition flex items-center justify-center gap-2 cursor-pointer ${
+                loginMethod === "google"
+                  ? "bg-white text-slate-900 shadow-xs border border-slate-200/50"
+                  : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.92h6.61c-.29 1.5-.1.1.1.1 1.14-.76 2.11-1.4 2.81-2.07l3.21.13 2.12.18-.32.12zm-11.745 4.5c2.34 0 4.3-.77 5.73-2.1l-2.81-2.17c-.82.55-1.87.88-2.92.88-2.25 0-4.15-1.52-4.83-3.57l-3.21.23-.23 3c1.44 2.88 4.41 4.73 7.82 4.73z" />
+                <path fill="#EA4335" d="M7.085 13.1c-.17-.5-.27-1.04-.27-1.6s.1-1.1.27-1.6l-3.21-.23-.62.53a11.96 11.96 0 000 10.1l3.83-.4c.1-.2 0-.2-.1-.8z" />
+                <path fill="#FBBC05" d="M12 7.27c1.27 0 2.42.44 3.32 1.3l2.84-2.84c-1.72-1.6-3.97-2.58-6.16-2.58C8.59 3.15 5.62 5 4.18 7.88l3.44 2.66c.68-2.05 2.58-3.27 4.83-3.27z" />
+              </svg>
+              Conta Google
+            </button>
+          </div>
+
           {unauthorizedEmail && (
-            <div className="w-full mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-left space-y-2 animate-fade-in">
-              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-sm">
-                <AlertCircle className="w-5 h-5 shrink-0 text-rose-600" />
+            <div className="w-full mt-4 p-4 bg-rose-50 border border-rose-200 rounded-2xl text-left space-y-1 animate-fade-in">
+              <div className="flex items-center gap-2 text-rose-800 font-extrabold text-xs sm:text-sm">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
                 Acesso Não Autorizado
               </div>
               <p className="text-xs text-rose-900 leading-relaxed font-medium">
-                O e-mail <strong className="font-extrabold text-rose-950 underline">{unauthorizedEmail}</strong> não possui autorização de acesso ao sistema.
-              </p>
-              <p className="text-[11px] text-rose-700">
-                Por favor, solicite a inclusão do seu e-mail ao administrador do sistema.
+                O e-mail <strong className="font-extrabold text-rose-950 underline">{unauthorizedEmail}</strong> não possui autorização de acesso.
               </p>
             </div>
           )}
 
-          <button
-            onClick={async () => {
-              try {
-                setIsSigningIn(true);
-                setUnauthorizedEmail(null);
-                const result = await googleSignIn();
-                if (result) {
-                  addNotification(`Bem-vindo, ${result.user.displayName}!`, "success");
+          {credentialsError && (
+            <div className="w-full mt-3 p-3 bg-rose-50 border border-rose-200 rounded-2xl text-left flex items-center gap-2 text-rose-800 text-xs font-semibold animate-fade-in">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              {credentialsError}
+            </div>
+          )}
+
+          {loginMethod === "credentials" ? (
+            <form onSubmit={handleCredentialsSubmit} className="w-full mt-4 space-y-3 text-left">
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">
+                  Usuário ou E-mail
+                </label>
+                <div className="relative">
+                  <UserCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                    placeholder="ex: Certificadora"
+                    disabled={isSigningIn}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-600 mb-1">
+                  Senha de Acesso
+                </label>
+                <div className="relative">
+                  <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    placeholder="••••••••"
+                    disabled={isSigningIn}
+                    className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:border-emerald-500 focus:bg-white transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={isSigningIn}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md transition disabled:opacity-50 cursor-pointer"
+              >
+                {isSigningIn ? "Validando Acesso..." : "Entrar no Sistema"}
+              </button>
+            </form>
+          ) : (
+            <button
+              onClick={async () => {
+                try {
+                  setIsSigningIn(true);
+                  setUnauthorizedEmail(null);
+                  const result = await googleSignIn(false);
+                  if (result && result.user) {
+                    const userEmail = result.user.email || "";
+                    const authorized = await isEmailAuthorized(userEmail);
+                    if (authorized) {
+                      const authUser: AppAuthUser = {
+                        uid: result.user.uid,
+                        displayName: result.user.displayName || userEmail.split("@")[0],
+                        email: userEmail,
+                        photoURL: result.user.photoURL,
+                        role: "admin"
+                      };
+                      setUser(authUser);
+                      setUnauthorizedEmail(null);
+                      addNotification(`Bem-vindo, ${result.user.displayName || userEmail}!`, "success");
+                    } else {
+                      setUnauthorizedEmail(userEmail);
+                      setUser(null);
+                      await logout().catch(console.error);
+                    }
+                  }
+                } catch (err: any) {
+                  console.error("Erro ao autenticar:", err);
+                  const isPopupClosed = err.code === "auth/popup-closed-by-user" || err.message?.includes("closed-by-user");
+                  if (isPopupClosed) {
+                    addNotification("A janela de login do Google foi fechada.", "info");
+                  } else {
+                    addNotification(err.message || "Falha na autenticação com Google.", "error");
+                  }
+                } finally {
+                  setIsSigningIn(false);
                 }
-              } catch (err: any) {
-                console.error(err);
-                addNotification("Falha na autenticação com Google.", "error");
-              } finally {
-                setIsSigningIn(false);
-              }
-            }}
-            disabled={isSigningIn}
-            className="w-full mt-6 flex items-center justify-center gap-3 px-6 py-3.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-2xl text-sm font-bold shadow-md hover:shadow-lg transition duration-150 disabled:opacity-50 cursor-pointer"
-          >
-            {isSigningIn ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-                Conectando...
-              </>
-            ) : (
-              <>
-                <svg className="w-5 h-5 bg-white rounded-full p-0.5 shadow-xs shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.92h6.61c-.29 1.5-.1.1.1.1 1.14-.76 2.11-1.4 2.81-2.07l3.21.13 2.12.18-.32.12zm-11.745 4.5c2.34 0 4.3-.77 5.73-2.1l-2.81-2.17c-.82.55-1.87.88-2.92.88-2.25 0-4.15-1.52-4.83-3.57l-3.21.23-.23 3c1.44 2.88 4.41 4.73 7.82 4.73z" />
-                  <path fill="#EA4335" d="M7.085 13.1c-.17-.5-.27-1.04-.27-1.6s.1-1.1.27-1.6l-3.21-.23-.62.53a11.96 11.96 0 000 10.1l3.83-.4c.1-.2 0-.2-.1-.8z" />
-                  <path fill="#FBBC05" d="M12 7.27c1.27 0 2.42.44 3.32 1.3l2.84-2.84c-1.72-1.6-3.97-2.58-6.16-2.58C8.59 3.15 5.62 5 4.18 7.88l3.44 2.66c.68-2.05 2.58-3.27 4.83-3.27z" />
-                </svg>
-                {unauthorizedEmail ? "Tentar outro E-mail Google" : "Acessar com Conta Google"}
-              </>
-            )}
-          </button>
+              }}
+              disabled={isSigningIn}
+              className="w-full mt-5 flex items-center justify-center gap-3 px-6 py-3.5 bg-slate-900 hover:bg-slate-800 active:bg-black text-white rounded-2xl text-sm font-bold shadow-md transition disabled:opacity-50 cursor-pointer"
+            >
+              {isSigningIn ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                  Conectando ao Google...
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5 bg-white rounded-full p-0.5 shadow-xs shrink-0" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v3.92h6.61c-.29 1.5-.1.1.1.1 1.14-.76 2.11-1.4 2.81-2.07l3.21.13 2.12.18-.32.12zm-11.745 4.5c2.34 0 4.3-.77 5.73-2.1l-2.81-2.17c-.82.55-1.87.88-2.92.88-2.25 0-4.15-1.52-4.83-3.57l-3.21.23-.23 3c1.44 2.88 4.41 4.73 7.82 4.73z" />
+                    <path fill="#EA4335" d="M7.085 13.1c-.17-.5-.27-1.04-.27-1.6s.1-1.1.27-1.6l-3.21-.23-.62.53a11.96 11.96 0 000 10.1l3.83-.4c.1-.2 0-.2-.1-.8z" />
+                    <path fill="#FBBC05" d="M12 7.27c1.27 0 2.42.44 3.32 1.3l2.84-2.84c-1.72-1.6-3.97-2.58-6.16-2.58C8.59 3.15 5.62 5 4.18 7.88l3.44 2.66c.68-2.05 2.58-3.27 4.83-3.27z" />
+                  </svg>
+                  {unauthorizedEmail ? "Tentar outro E-mail Google" : "Acessar com Conta Google"}
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         {/* Global Floating Notifications inside Login */}
@@ -356,18 +593,32 @@ export default function App() {
                 className="w-9 h-9 rounded-full border border-slate-200 shrink-0" 
                 referrerPolicy="no-referrer" 
               />
+            ) : user.role === "certificadora" ? (
+              <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                <Shield className="w-5 h-5" />
+              </div>
             ) : (
               <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
                 {user.displayName?.charAt(0) || "U"}
               </div>
             )}
             <div className="flex flex-col min-w-0">
-              <span className="text-xs font-bold text-slate-700 truncate leading-none">
-                {user.displayName}
-              </span>
-              <span className="text-[10px] text-slate-400 truncate mt-1">
-                {user.email}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold text-slate-800 truncate leading-none">
+                  {user.displayName}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 mt-1">
+                {user.role === "certificadora" ? (
+                  <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                    Certificadora
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-400 truncate">
+                    {user.email}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -453,18 +704,30 @@ export default function App() {
                         className="w-9 h-9 rounded-full border border-slate-200 shrink-0" 
                         referrerPolicy="no-referrer" 
                       />
+                    ) : user.role === "certificadora" ? (
+                      <div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                        <Shield className="w-5 h-5" />
+                      </div>
                     ) : (
                       <div className="w-9 h-9 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-sm shrink-0">
                         {user.displayName?.charAt(0) || "U"}
                       </div>
                     )}
                     <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-bold text-slate-700 truncate leading-none">
+                      <span className="text-xs font-bold text-slate-800 truncate leading-none">
                         {user.displayName}
                       </span>
-                      <span className="text-[10px] text-slate-400 truncate mt-1">
-                        {user.email}
-                      </span>
+                      <div className="flex items-center gap-1 mt-1">
+                        {user.role === "certificadora" ? (
+                          <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-md">
+                            Certificadora
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 truncate">
+                            {user.email}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 

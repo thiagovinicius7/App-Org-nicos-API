@@ -15,10 +15,19 @@ export const db = initializeFirestore(app, {
 // Initialize Firebase Auth
 export const auth = getAuth(app);
 
-const provider = new GoogleAuthProvider();
-// Request Google Sheets and Google Drive scopes
-provider.addScope("https://www.googleapis.com/auth/spreadsheets.readonly");
-provider.addScope("https://www.googleapis.com/auth/drive.file");
+// Default standard Google provider for fast, frictionless login
+const defaultGoogleProvider = new GoogleAuthProvider();
+defaultGoogleProvider.setCustomParameters({
+  prompt: "select_account"
+});
+
+// Provider with extra Google Drive and Spreadsheet scopes only for Importer
+const driveGoogleProvider = new GoogleAuthProvider();
+driveGoogleProvider.addScope("https://www.googleapis.com/auth/spreadsheets.readonly");
+driveGoogleProvider.addScope("https://www.googleapis.com/auth/drive.file");
+driveGoogleProvider.setCustomParameters({
+  prompt: "consent"
+});
 
 let isSigningIn = false;
 let cachedAccessToken: string | null = null;
@@ -33,8 +42,6 @@ export const initAuth = (
       if (cachedAccessToken) {
         if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
       } else if (!isSigningIn) {
-        // If there's no cached token, we can check if the user is logged in but we need a fresh token
-        // Usually signInWithPopup is required to get a new credential/token, or token is stored in memory.
         if (onAuthFailure) onAuthFailure();
       }
     } else {
@@ -44,18 +51,17 @@ export const initAuth = (
   });
 };
 
-// Google Sign-In to get user and access token
-export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+// Google Sign-In to get user (and optionally access token for Drive/Sheets)
+export const googleSignIn = async (requestDriveScopes = false): Promise<{ user: User; accessToken?: string } | null> => {
   try {
     isSigningIn = true;
+    const provider = requestDriveScopes ? driveGoogleProvider : defaultGoogleProvider;
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    if (!credential?.accessToken) {
-      throw new Error("Não foi possível obter o token de acesso do Google");
-    }
-
-    cachedAccessToken = credential.accessToken;
-    return { user: result.user, accessToken: cachedAccessToken };
+    
+    // Store access token if returned (optional for Drive/Sheets operations)
+    cachedAccessToken = credential?.accessToken || null;
+    return { user: result.user, accessToken: cachedAccessToken || "" };
   } catch (error: any) {
     console.error("Erro no login Google:", error);
     throw error;
