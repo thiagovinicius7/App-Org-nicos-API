@@ -411,7 +411,7 @@ function nivelarBandejas(culturas: PlanoCultura[], config: ConfigPlanejamento) {
   const total = (i: number) => comBandeja.reduce((s, c) => s + (c.plantar.at(i)?.quantidade || 0), 0) / b;
   let soma = 0;
   for (let i = 0; i < n; i++) soma += total(i);
-  const alvo = Math.ceil(soma / n);
+  const alvo = Math.max(1, Math.round(soma / n));
   for (let passada = 0; passada < n; passada++) {
     let mudou = false;
     for (let i = n - 1; i >= 1; i--) {
