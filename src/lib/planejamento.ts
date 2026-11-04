@@ -40,9 +40,11 @@ export interface ConfigPlanejamento {
   semanasHistorico: number;
   /** Quantas semanas de plantio sugerir (esta + próximas). */
   semanasPlantio: number;
+  /** Mudas por bandeja: o pedido de mudas vem em bandejas inteiras (0 = sem bandeja). */
+  bandeja: number;
 }
 
-export const CONFIG_PADRAO: ConfigPlanejamento = { margem: 0.1, semanasHistorico: 8, semanasPlantio: 4 };
+export const CONFIG_PADRAO: ConfigPlanejamento = { margem: 0.1, semanasHistorico: 8, semanasPlantio: 4, bandeja: 200 };
 
 export type OrigemRendimento = "historico" | "informado" | "unidade" | null;
 
@@ -263,6 +265,11 @@ export function calcularPlanejamento(
     if (rendimento && rendimento > 0) {
       const simulada = [...oferta];
       const base = saidaSemanal / rendimento;
+      // Mudas vêm em bandejas inteiras: acumula a necessidade semana a semana e
+      // planta uma bandeja quando o acumulado passa de meia bandeja. Assim cada
+      // variedade entra no rodízio no intervalo que a saída dela pede.
+      const bandeja = forma === "Muda" && config.bandeja > 0 ? config.bandeja : 0;
+      let acumulado = 0;
       for (let i = 0; i < config.semanasPlantio; i++) {
         const dataPlantio = somarDias(hoje, 7 * i);
         const primeiraColheita = somarDias(dataPlantio, crop.dias);
@@ -274,8 +281,16 @@ export function calcularPlanejamento(
         let q = jaTem >= 1.3 * saidaSemanal ? 0 : base + 0.5 * (corrigido - base);
         q = Math.max(0, Math.min(q, 2 * base));
         q = q * (1 + config.margem);
-        const arredonda = forma === "Semente" ? 1 : 10;
-        const quantidade = q > 0 ? Math.ceil(q / arredonda) * arredonda : 0;
+        let quantidade: number;
+        if (bandeja) {
+          acumulado += q;
+          const bandejas = acumulado >= bandeja / 2 ? Math.max(1, Math.round(acumulado / bandeja)) : 0;
+          quantidade = bandejas * bandeja;
+          acumulado -= quantidade;
+        } else {
+          const arredonda = forma === "Semente" ? 1 : 10;
+          quantidade = q > 0 ? Math.ceil(q / arredonda) * arredonda : 0;
+        }
         plantar.push({ data: dataPlantio, quantidade, base: arred(base * (1 + config.margem), 0) });
         if (quantidade > 0) {
           espalhar(simulada, hoje, primeiraColheita, somarDias(primeiraColheita, Math.max(7, crop.duracao || 0)), quantidade * rendimento);
@@ -319,6 +334,8 @@ export function calcularPlanejamento(
     });
   });
 
+  nivelarBandejas(culturas, config);
+
   // Principais: fixadas + as de colheita mais frequente (até 12 no total).
   const ordem = [...culturas].sort((a, b) =>
     (Number(b.fixada) - Number(a.fixada)) || (b.diasComColheita - a.diasComColheita) || (b.saidaSemanal - a.saidaSemanal)
@@ -331,13 +348,53 @@ export function calcularPlanejamento(
   return { hoje, inicioDados, semanasDeDados, culturas: ordem };
 }
 
+/**
+ * Deixa o número de bandejas por semana mais regular: quando uma semana passa
+ * da média e a anterior está abaixo, antecipa uma bandeja em uma semana
+ * (antecipar é seguro: a alface fica pronta antes, nunca depois).
+ */
+function nivelarBandejas(culturas: PlanoCultura[], config: ConfigPlanejamento) {
+  const b = config.bandeja;
+  const n = config.semanasPlantio;
+  if (!(b > 0) || n < 2) return;
+  const comBandeja = culturas.filter(c => c.forma === "Muda" && c.plantar.length === n);
+  if (comBandeja.length === 0) return;
+  const total = (i: number) => comBandeja.reduce((s, c) => s + (c.plantar.at(i)?.quantidade || 0), 0) / b;
+  let soma = 0;
+  for (let i = 0; i < n; i++) soma += total(i);
+  const alvo = Math.ceil(soma / n);
+  for (let passada = 0; passada < n; passada++) {
+    let mudou = false;
+    for (let i = n - 1; i >= 1; i--) {
+      while (total(i) > alvo && total(i - 1) < alvo) {
+        const candidata = comBandeja
+          .filter(c => (c.plantar.at(i)?.quantidade || 0) >= b && (c.plantar.at(i - 1)?.quantidade || 0) === 0)
+          .sort((x, y) => y.saidaSemanal - x.saidaSemanal)[0];
+        if (!candidata) break;
+        const atual = candidata.plantar.at(i)!, anterior = candidata.plantar.at(i - 1)!;
+        atual.quantidade -= b;
+        anterior.quantidade += b;
+        mudou = true;
+      }
+    }
+    if (!mudou) break;
+  }
+}
+
 /** Texto do pedido de mudas / sementes, pronto para mandar no WhatsApp. */
-export function textoPedido(res: ResultadoPlanejamento, semana: number): string {
+export function textoPedido(res: ResultadoPlanejamento, semana: number, bandeja = 0): string {
   const itens = res.culturas.filter(c => c.principal && (c.plantar[semana]?.quantidade || 0) > 0);
   if (itens.length === 0) return "";
   const data = itens[0].plantar[semana].data;
   const d = parseData(data);
   const titulo = `Plantio da semana de ${d ? d.toLocaleDateString("pt-BR") : data}`;
-  const linhas = itens.map(c => `• ${c.cultura}: ${c.plantar[semana].quantidade} ${c.unidadePlantio}`);
+  const linhas = itens.map(c => {
+    const q = c.plantar[semana].quantidade;
+    if (bandeja > 0 && c.forma === "Muda" && q % bandeja === 0) {
+      const n = q / bandeja;
+      return `• ${c.cultura}: ${n} bandeja${n > 1 ? "s" : ""} (${q} mudas)`;
+    }
+    return `• ${c.cultura}: ${q} ${c.unidadePlantio}`;
+  });
   return [titulo, ...linhas].join("\n");
 }

@@ -127,7 +127,7 @@ export default function Planejamento({ onNotify }: Props) {
   };
 
   const copiarPedido = async () => {
-    const texto = textoPedido(resultado, semana);
+    const texto = textoPedido(resultado, semana, config.bandeja);
     if (!texto) {
       onNotify("Nada a plantar nesta semana.", "info");
       return;
@@ -314,6 +314,7 @@ export default function Planejamento({ onNotify }: Props) {
       )}
 
       <div className="text-[11px] text-slate-500 leading-relaxed bg-white p-4 rounded-2xl border border-slate-200 space-y-1">
+        <p><strong>Bandejas:</strong> mudas são sugeridas em bandejas inteiras de {config.bandeja || "—"}. Cada variedade entra no rodízio quando a necessidade acumulada passa de meia bandeja, e as semanas mais cheias antecipam uma bandeja para a semana anterior.</p>
         <p><strong>Como é calculado:</strong> a saída é a média das colheitas (as 2 últimas semanas pesam mais). O plantio da semana é o que falta para a primeira semana de colheita dele ficar coberta, contando que se planta toda semana: em situação normal dá saída ÷ rendimento; se o campo já tem muito, diminui; se falta, aumenta até o dobro. Soma a margem de segurança de {Math.round(config.margem * 100)}%.</p>
         <p>Perenes ficam de fora. A colheita lançada é usada como saída: se um item faltou e por isso não foi colhido, a média fica abaixo da procura real. Nesse caso, defina uma meta semanal na cultura.</p>
       </div>
@@ -437,8 +438,9 @@ function Detalhe({
 function Config({ config, salvando, onSalvar }: { config: ConfigPlanejamento; salvando: boolean; onSalvar: (c: ConfigPlanejamento) => void }) {
   const [margem, setMargem] = useState(String(Math.round(config.margem * 100)));
   const [semanas, setSemanas] = useState(String(config.semanasHistorico));
+  const [bandeja, setBandeja] = useState(String(config.bandeja));
   return (
-    <div className="bg-white p-5 rounded-2xl border border-slate-200 grid sm:grid-cols-3 gap-4 items-end text-xs">
+    <div className="bg-white p-5 rounded-2xl border border-slate-200 grid sm:grid-cols-4 gap-4 items-end text-xs">
       <label className="block">
         <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Margem de segurança (%)</span>
         <input type="number" min="0" max="100" value={margem} onChange={e => setMargem(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg font-mono" />
@@ -447,12 +449,17 @@ function Config({ config, salvando, onSalvar }: { config: ConfigPlanejamento; sa
         <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Semanas de histórico na média</span>
         <input type="number" min="2" max="26" value={semanas} onChange={e => setSemanas(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg font-mono" />
       </label>
+      <label className="block">
+        <span className="font-bold text-slate-500 uppercase tracking-wider text-[10px]">Mudas por bandeja (0 = sem bandeja)</span>
+        <input type="number" min="0" step="1" value={bandeja} onChange={e => setBandeja(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg font-mono" />
+      </label>
       <button
         disabled={salvando}
         onClick={() => onSalvar({
           ...config,
           margem: Math.max(0, Math.min(1, (parseFloat(margem) || 0) / 100)),
-          semanasHistorico: Math.max(2, Math.min(26, parseInt(semanas) || 8))
+          semanasHistorico: Math.max(2, Math.min(26, parseInt(semanas) || 8)),
+          bandeja: Math.max(0, parseInt(bandeja) || 0)
         })}
         className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg cursor-pointer disabled:opacity-50"
       >

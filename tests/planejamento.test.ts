@@ -1,6 +1,8 @@
 // Testes do planejamento de plantio.
 // Para rodar: npx esbuild tests/planejamento.test.ts --bundle --platform=node --format=cjs --outfile=/tmp/plan.cjs && node /tmp/plan.cjs
-import { calcularPlanejamento, CONFIG_PADRAO } from "../src/lib/planejamento";
+import { calcularPlanejamento, CONFIG_PADRAO as PADRAO } from "../src/lib/planejamento";
+// A maioria dos testes mede o cálculo contínuo; a bandeja tem testes próprios no fim.
+const CONFIG_PADRAO = { ...PADRAO, bandeja: 0 };
 import { somarDias } from "../src/lib/producao";
 
 let ok = 0, fail = 0;
@@ -72,6 +74,17 @@ t("rúcula sem rendimento: não sugere número", ruc.plantar.length === 0 && ruc
 // 7) Ignorar tira da lista.
 r = calcularPlanejamento(crops.map(c => c.nome === "Couve" ? { ...c, planejamento: { ignorar: true } } : c), [perene], harvests, CONFIG_PADRAO, hoje);
 t("ignorar tira da lista", !r.culturas.some(c => c.cultura === "Couve"));
+
+// 8) Bandeja de 200: só bandejas inteiras, e a média de longo prazo acompanha a saída.
+const longo = { ...PADRAO, semanasPlantio: 12 };
+r = calcularPlanejamento(crops, regime, harvests, longo, hoje);
+const ab = r.culturas.find(c => c.cultura === "Alface Crespa verde")!;
+t("bandeja: só múltiplos de 200", ab.plantar.every(p => p.quantidade % 200 === 0), ab.plantar.map(p => p.quantidade));
+const mediaSemana = ab.plantar.reduce((s, p) => s + p.quantidade, 0) / ab.plantar.length;
+t("bandeja: média semanal perto do normal (±30%)", Math.abs(mediaSemana - ab.plantar[0].base) <= 0.3 * ab.plantar[0].base, { mediaSemana, base: ab.plantar[0].base });
+t("bandeja: não planta toda semana uma variedade de saída ~100", ab.plantar.some(p => p.quantidade === 0), ab.plantar.map(p => p.quantidade));
+r = calcularPlanejamento(crops, regime, harvests, { ...longo, bandeja: 0 }, hoje);
+t("sem bandeja: volta ao contínuo", r.culturas.find(c => c.cultura === "Alface Crespa verde")!.plantar.some(p => p.quantidade % 200 !== 0));
 
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);
