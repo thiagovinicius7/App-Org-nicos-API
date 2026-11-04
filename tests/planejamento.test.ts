@@ -50,7 +50,7 @@ t("100 mudas/semana para saída de ~93: fica perto do normal, sem oscilar", a2.p
 // 3) Campo cheio demais: não planta.
 const cheio: any[] = [perene, ...regime.slice(1).map(p => ({ ...p, quantidade: 400 }))];
 r = calcularPlanejamento(crops, cheio, harvests, CONFIG_PADRAO, hoje);
-t("campo cheio: planta 0", r.culturas.find(c => c.cultura === "Alface Crespa verde")!.plantar[0].quantidade === 0);
+t("campo cheio: não sugere plantio", (r.culturas.find(c => c.cultura === "Alface Crespa verde")!.plantar.at(0)?.quantidade ?? 0) === 0);
 
 // 4) Saída maior → planta mais.
 const mais = harvests.map(h => h.cultura === "Alface Crespa verde" ? { ...h, qtd: 40 } : h);
@@ -85,6 +85,17 @@ t("bandeja: média semanal perto do normal (±30%)", Math.abs(mediaSemana - ab.p
 t("bandeja: não planta toda semana uma variedade de saída ~100", ab.plantar.some(p => p.quantidade === 0), ab.plantar.map(p => p.quantidade));
 r = calcularPlanejamento(crops, regime, harvests, { ...longo, bandeja: 0 }, hoje);
 t("sem bandeja: volta ao contínuo", r.culturas.find(c => c.cultura === "Alface Crespa verde")!.plantar.some(p => p.quantidade % 200 !== 0));
+
+// 9) Referência da bibliografia: usada só sem histórico e sem valor informado.
+const cropsRef: any[] = [...crops, { nome: "Coentro", unidadeColheita: "MÇ", dias: 30, duracao: 20 }];
+const coH = [...harvests, { cultura: "Coentro", data: somarDias(hoje, -3), qtd: 40, idPlantio: "co" }];
+const coP: any[] = [perene, { id: "co", cultura: "Coentro", tipo: "Semente", unidade: "m²", status: "Colhendo", data: "2026-10-01", quantidade: 40, totalColhido: 40 }];
+r = calcularPlanejamento(cropsRef, coP, coH, CONFIG_PADRAO, hoje);
+const co = r.culturas.find(c => c.cultura === "Coentro")!;
+t("coentro usa referência (5 MÇ/m²)", co.rendimentoOrigem === "referencia" && co.rendimento === 5, co);
+t("coentro: sugere área em m²", co.plantar[0].quantidade > 0 && co.unidadePlantio === "m²", co.plantar);
+r = calcularPlanejamento(cropsRef.map(c => c.nome === "Coentro" ? { ...c, planejamento: { rendimento: 8 } } : c), coP, coH, CONFIG_PADRAO, hoje);
+t("valor informado vence a referência", r.culturas.find(c => c.cultura === "Coentro")!.rendimento === 8);
 
 console.log(`\n${ok} ok, ${fail} falhas`);
 process.exit(fail ? 1 : 0);

@@ -44,9 +44,34 @@ export interface ConfigPlanejamento {
   bandeja: number;
 }
 
-export const CONFIG_PADRAO: ConfigPlanejamento = { margem: 0.1, semanasHistorico: 8, semanasPlantio: 4, bandeja: 200 };
+export const CONFIG_PADRAO: ConfigPlanejamento = { margem: 0.1, semanasHistorico: 8, semanasPlantio: 8, bandeja: 200 };
 
-export type OrigemRendimento = "historico" | "informado" | "unidade" | null;
+export type OrigemRendimento = "historico" | "informado" | "referencia" | "unidade" | null;
+
+/**
+ * Rendimento de referência (bibliografia), usado só quando não há histórico
+ * nem valor informado. Por muda (forma "Muda") ou por m² (forma "Semente"),
+ * na unidade de colheita. Maços convertidos pelo peso do maço do Sítio
+ * (informado em 04/11/2026): coentro 150–200 g; rúcula, rabanete e couve
+ * 250–300 g; alho-poró 250–300 g.
+ */
+export const REFERENCIAS: Record<string, { valor: number; forma: "Muda" | "Semente"; unidade: string; fonte: string }> = {
+  "coentro": { valor: 5, forma: "Semente", unidade: "MÇ", fonte: "Linhares et al. 2014 (Revista Verde): 1,0 a 1,2 kg/m²" },
+  "rucula": { valor: 4, forma: "Semente", unidade: "MÇ", fonte: "Embrapa Agropecuária Oeste 2016: cerca de 1,1 kg/m²" },
+  "rabanete": { valor: 5, forma: "Semente", unidade: "MÇ", fonte: "Rev. Bras. Agroecologia 2009: 1,3 a 1,6 kg/m², orgânico" },
+  "cenoura": { valor: 2.5, forma: "Semente", unidade: "KG", fonte: "Embrapa/Hortic. Brasileira 2016: 2,2 a 5,4 kg/m², orgânico" },
+  "couve": { valor: 6, forma: "Muda", unidade: "MÇ", fonte: "Noboa et al. 2019: cerca de 78 folhas por planta em 167 dias" },
+  "alho-porro": { valor: 0.8, forma: "Muda", unidade: "MÇ", fonte: "Revista Ceres: cerca de 225 g por planta" },
+  "couve-flor": { valor: 0.5, forma: "Muda", unidade: "KG", fonte: "Cadernos de Agroecologia: 0,38 a 0,74 kg por cabeça, orgânico" },
+  "brocolis japones": { valor: 0.25, forma: "Muda", unidade: "KG", fonte: "Cadernos de Agroecologia 2018: 0,17 a 0,29 kg por cabeça, orgânico" },
+  "repolho verde": { valor: 1.2, forma: "Muda", unidade: "KG", fonte: "Embrapa (Amapá 1986, Acre 2000): 0,6 a 1,3 kg por cabeça" },
+  "repolho": { valor: 1.2, forma: "Muda", unidade: "KG", fonte: "Embrapa (Amapá 1986, Acre 2000): 0,6 a 1,3 kg por cabeça" },
+  "cebola": { valor: 0.06, forma: "Muda", unidade: "KG", fonte: "Embrapa 2013: bulbos de 50 a 70 g, base ecológica" }
+};
+
+function chaveReferencia(nome: string): string {
+  return (nome || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+}
 
 export interface SemanaCobertura {
   inicio: string;
@@ -75,6 +100,7 @@ export interface PlanoCultura {
   rendimento: number | null;
   rendimentoOrigem: OrigemRendimento;
   amostrasRendimento?: number;
+  fonteRendimento?: string;
   /** Plantio sugerido por semana (índice 0 = esta semana). */
   plantar: { data: string; quantidade: number; base: number }[];
   /** Cobertura das próximas semanas só com o que já está no campo. */
@@ -94,6 +120,8 @@ export interface ResultadoPlanejamento {
 
 const DIA = 1;
 const SEMANAS_COBERTURA = 8;
+/** Plantio fora da janela que ainda colhe: quantas semanas a mais, no máximo. */
+const MAX_SEMANAS_ALEM = 4;
 
 function arred(n: number, casas = 1): number {
   const f = Math.pow(10, casas);
@@ -197,6 +225,7 @@ export function calcularPlanejamento(
     let rendimento: number | null = null;
     let rendimentoOrigem: OrigemRendimento = null;
     let amostrasRendimento: number | undefined;
+    let fonteRendimento: string | undefined;
     const hist = historico.get(`${chave(nome)}|${forma === "Semente" ? "m2" : "un"}`);
     if (hist && hist.porUnidade > 0) {
       rendimento = hist.porUnidade; rendimentoOrigem = "historico"; amostrasRendimento = hist.amostras;
@@ -204,6 +233,11 @@ export function calcularPlanejamento(
       rendimento = cfg.rendimento; rendimentoOrigem = "informado";
     } else if (forma === "Muda" && normalizarUnidade(unidade) === "UN") {
       rendimento = 1; rendimentoOrigem = "unidade";
+    } else {
+      const ref = REFERENCIAS[chaveReferencia(nome)];
+      if (ref && ref.forma === forma && normalizarUnidade(unidade) === ref.unidade) {
+        rendimento = ref.valor; rendimentoOrigem = "referencia"; fonteRendimento = ref.fonte;
+      }
     }
 
     // ---- Oferta dos plantios abertos
@@ -211,6 +245,7 @@ export function calcularPlanejamento(
     const oferta = new Array(horizonte).fill(0);
     const abertos = plantios.filter(p => p.status !== "Finalizado" && p.tipo !== "Perene");
     let semQuantidade = 0;
+    let estoqueIncerto = false;
     for (const p of abertos) {
       const fimJanela = somarDias(p.previsao || somarDias(p.data, crop.dias), Math.max(7, crop.duracao || 0));
       const ultima = colheitasDoPlantio(harvests, p)[0]?.data;
@@ -227,18 +262,30 @@ export function calcularPlanejamento(
         if (!(quantidade > 0)) semQuantidade++;
         continue;
       }
-      const resto = Math.max(0, esperado - colhido);
+      let resto = Math.max(0, esperado - colhido);
       if (resto <= 0) continue;
       const previsao = p.previsao || somarDias(p.data, crop.dias);
-      let inicio = previsao > hoje ? previsao : hoje;
+      // Já colhendo (mesmo antes da previsão) conta desde hoje.
+      const inicio = p.status === "Colhendo" || previsao <= hoje ? hoje : previsao;
       let fim = somarDias(previsao, Math.max(7, crop.duracao || 0));
-      if (fim <= somarDias(hoje, 7)) fim = somarDias(hoje, 7); // além do prazo: assume que termina nesta semana
+      if (fim <= somarDias(hoje, 7)) {
+        // Passou da janela e ainda colhe: segue no ritmo da saída, por no máximo 4 semanas.
+        const ritmo = Math.max(saidaSemanal, 0.1);
+        const semanas = Math.min(MAX_SEMANAS_ALEM, Math.max(1, resto / ritmo));
+        if (resto > ritmo * MAX_SEMANAS_ALEM) {
+          estoqueIncerto = true;
+          avisos.push(`Plantio ${p.id} (talhão ${p.talhao}) passou da janela e, pela quantidade plantada, ainda teria muito a colher. Confira no campo quanto falta antes de plantar de novo; até lá, o app não sugere plantio.`);
+        }
+        resto = Math.min(resto, ritmo * semanas);
+        fim = somarDias(hoje, Math.round(7 * semanas));
+      }
       if (fim <= inicio) fim = somarDias(inicio, 7);
       espalhar(oferta, hoje, inicio, fim, resto);
     }
 
     // Sem rendimento não dá para medir a oferta: cobertura fica "sem dado", não "falta".
-    const medivel = rendimento !== null || abertos.some(p => (p.estimativaColheita || 0) > 0);
+    // Estoque incerto (plantio grande fora da janela): também não dá para medir.
+    const medivel = !estoqueIncerto && (rendimento !== null || abertos.some(p => (p.estimativaColheita || 0) > 0));
     const cobertura: SemanaCobertura[] = [];
     for (let k = 0; k < SEMANAS_COBERTURA; k++) {
       cobertura.push({
@@ -262,7 +309,7 @@ export function calcularPlanejamento(
     // ---- Plantio sugerido (simulação semana a semana)
     const semanasNaJanela = Math.max(1, (crop.duracao || 7) / 7);
     const plantar: PlanoCultura["plantar"] = [];
-    if (rendimento && rendimento > 0) {
+    if (rendimento && rendimento > 0 && !estoqueIncerto) {
       const simulada = [...oferta];
       const base = saidaSemanal / rendimento;
       // Mudas vêm em bandejas inteiras: acumula a necessidade semana a semana e
@@ -296,7 +343,7 @@ export function calcularPlanejamento(
           espalhar(simulada, hoje, primeiraColheita, somarDias(primeiraColheita, Math.max(7, crop.duracao || 0)), quantidade * rendimento);
         }
       }
-    } else if (saidaSemanal > 0) {
+    } else if (saidaSemanal > 0 && !estoqueIncerto) {
       avisos.push(
         forma === "Semente"
           ? `Informe quanto rende 1 m² (em ${unidade}) para calcular a área.`
@@ -307,6 +354,7 @@ export function calcularPlanejamento(
     if (!meta && diasComColheita === 0 && abertos.length === 0) return; // sem movimento: fora da lista
     if (!meta && saidaSemanal === 0) avisos.push("Sem colheita nas últimas semanas.");
     if (rendimentoOrigem === "unidade") avisos.push("Rendimento de 1 pé por muda até haver plantio finalizado para medir a perda.");
+    if (rendimentoOrigem === "referencia") avisos.push("Rendimento de referência da bibliografia: confira no campo; o histórico substitui quando houver plantio completo.");
     if (crop.duracao <= 0) avisos.push("Cultura sem duração de colheita: usei 1 semana.");
 
     culturas.push({
@@ -326,6 +374,7 @@ export function calcularPlanejamento(
       rendimento: rendimento === null ? null : arred(rendimento, 2),
       rendimentoOrigem,
       amostrasRendimento,
+      fonteRendimento,
       plantar,
       cobertura,
       primeiraFalta: falta ? falta.inicio : null,

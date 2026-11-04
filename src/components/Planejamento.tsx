@@ -39,6 +39,7 @@ function Tendencia({ valor }: { valor: number | null }) {
 const ORIGEM_RENDIMENTO: Record<string, string> = {
   historico: "média dos plantios finalizados",
   informado: "informado na cultura",
+  referencia: "referência da bibliografia",
   unidade: "1 pé por muda, sem histórico de perda"
 };
 
@@ -175,7 +176,7 @@ export default function Planejamento({ onNotify }: Props) {
                 {p.quantidade > 0 && <span className="text-[10px] font-bold text-slate-400 ml-1">{c.unidadePlantio}</span>}
               </div>
             ) : (
-              <span className="text-[10px] text-amber-700 font-bold">falta rendimento</span>
+              <span className="text-[10px] text-amber-700 font-bold">{c.rendimento === null ? "falta rendimento" : "conferir no campo"}</span>
             )}
           </td>
           <td className="p-3 hidden md:table-cell">
@@ -273,7 +274,7 @@ export default function Planejamento({ onNotify }: Props) {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-slate-200 flex flex-wrap gap-2 items-center justify-between">
           <h2 className="text-xs font-black uppercase tracking-widest text-slate-700">Principais itens</h2>
-          <div className="flex gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200">
+          <div className="flex flex-wrap gap-1 bg-slate-50 p-1 rounded-xl border border-slate-200">
             {datasSemanas.map((d, i) => (
               <button
                 key={i}
@@ -365,7 +366,7 @@ function Detalhe({
         <p>
           <strong>Rendimento:</strong>{" "}
           {c.rendimento !== null
-            ? <>{fmt(c.rendimento, 2)} {c.unidade} por {c.unidadePlantio === "m²" ? "m²" : "muda"} ({ORIGEM_RENDIMENTO[c.rendimentoOrigem || ""]}{c.amostrasRendimento ? `, ${c.amostrasRendimento} plantio${c.amostrasRendimento > 1 ? "s" : ""}` : ""})</>
+            ? <>{fmt(c.rendimento, 2)} {c.unidade} por {c.unidadePlantio === "m²" ? "m²" : "muda"} ({ORIGEM_RENDIMENTO[c.rendimentoOrigem || ""]}{c.amostrasRendimento ? `, ${c.amostrasRendimento} plantio${c.amostrasRendimento > 1 ? "s" : ""}` : ""}{c.fonteRendimento ? `: ${c.fonteRendimento}` : ""})</>
             : <span className="text-amber-700 font-bold">não informado</span>}
         </p>
         <p><strong>Colheita:</strong> dura cerca de {fmt(c.semanasNaJanela)} semana{c.semanasNaJanela > 1 ? "s" : ""} por plantio.</p>
