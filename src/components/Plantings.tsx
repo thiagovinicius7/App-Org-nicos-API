@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { CanEdit, launchStamp } from "../lib/permissions";
-import { normalizarUnidade, calcularHistorico,
+import { normalizarUnidade, calcularHistorico, inicioDosDados,
   statusCalculado, STATUS_INFO, hojeLocal, somarDias, buscarCultura, unidadeColheita,
   colheitasDoPlantio
 } from "../lib/producao";
@@ -34,11 +34,11 @@ interface CanteiroItem {
 
 export default function Plantings({ onNotify }: PlantingsProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
-  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings, inicioDosDados(harvests)), [plantings, harvests]);
   const [loading, setLoading] = useState<boolean>(true);
 
   const getCropHarvestUnit = (culturaName: string, fallback?: string): string => {

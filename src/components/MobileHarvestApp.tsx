@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { CanEdit, CanFixHarvest, launchStamp } from "../lib/permissions";
-import { normalizarUnidade, calcularHistorico,
+import { normalizarUnidade, calcularHistorico, inicioDosDados,
   statusCalculado, grupoColheita, GRUPOS_COLHEITA, hojeLocal, novoIdSessao, encontrarPlantio,
   colheitasDoPlantio, verificarLimite, lancarColheitas, ajustarColheita, excluirColheitas,
   iniciarColheita, mudarIdColheita, ItemColheita, formatarData
@@ -32,9 +32,9 @@ interface MobileHarvestAppProps {
 
 export default function MobileHarvestApp({ onNotify, onExitMobile }: MobileHarvestAppProps) {
   const [plantings, setPlantings] = useState<Planting[]>([]);
-  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
-  const historico = useMemo(() => calcularHistorico(plantings), [plantings]);
   const [harvests, setHarvests] = useState<Harvest[]>([]);
+  // Rendimento médio dos plantios finalizados, para estimar kg/maço sem digitar nada.
+  const historico = useMemo(() => calcularHistorico(plantings, inicioDosDados(harvests)), [plantings, harvests]);
   const [crops, setCrops] = useState<Crop[]>([]);
   const [initialLoading, setInitialLoading] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);

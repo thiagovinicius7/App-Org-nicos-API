@@ -250,16 +250,27 @@ function chaveRendimento(cultura: string, unidadePlantio: string): string {
   return `${(cultura || "").toLowerCase().trim()}|${unidadePlantio === "m²" ? "m2" : "un"}`;
 }
 
+/** Data da primeira colheita lançada no sistema (início dos dados). */
+export function inicioDosDados(harvests: Harvest[]): string | null {
+  let menor: string | null = null;
+  for (const h of harvests) if (h.data && (!menor || h.data < menor)) menor = h.data;
+  return menor;
+}
+
 /**
  * Média do que cada cultura rendeu nos plantios já finalizados:
  * total colhido ÷ quantidade plantada (mudas ou m²), ponderada pelo tamanho.
+ *
+ * `desde`: início dos lançamentos. Plantios que começaram a colher antes disso
+ * têm o total incompleto e ficam de fora, senão o rendimento sai baixo demais.
  */
-export function calcularHistorico(plantings: Planting[]): HistoricoRendimento {
+export function calcularHistorico(plantings: Planting[], desde?: string | null): HistoricoRendimento {
   const soma = new Map<string, { colhido: number; plantado: number; n: number }>();
   for (const p of plantings) {
     const colhido = Number(p.totalColhido) || 0;
     const plantado = Number(p.quantidade) || 0;
     if (p.status !== "Finalizado" || colhido <= 0 || plantado <= 0) continue;
+    if (desde && (!p.previsao || p.previsao < desde)) continue;
     const k = chaveRendimento(p.cultura, p.unidade);
     const acc = soma.get(k) || { colhido: 0, plantado: 0, n: 0 };
     acc.colhido += colhido; acc.plantado += plantado; acc.n += 1;
