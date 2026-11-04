@@ -196,6 +196,7 @@ export function calcularPlanejamento(
   harvests.forEach(h => reg(h.cultura).colheitas.push(h));
 
   const culturas: PlanoCultura[] = [];
+  const paraBandejas: ContextoBandeja[] = [];
 
   porCultura.forEach(({ nome, plantios, colheitas }) => {
     const crop = buscarCultura(crops, nome);
@@ -309,14 +310,21 @@ export function calcularPlanejamento(
     // ---- Plantio sugerido (simulação semana a semana)
     const semanasNaJanela = Math.max(1, (crop.duracao || 7) / 7);
     const plantar: PlanoCultura["plantar"] = [];
-    if (rendimento && rendimento > 0 && !estoqueIncerto) {
+    const usaBandeja = forma === "Muda" && config.bandeja > 0;
+    if (rendimento && rendimento > 0 && !estoqueIncerto && usaBandeja) {
+      // Mudas em bandejas: decididas depois, juntas para todas as culturas (agendarBandejas).
+      paraBandejas.push({
+        plantar,
+        simulada: [...oferta],
+        dias: crop.dias,
+        duracao: Math.max(7, crop.duracao || 0),
+        semanasNaJanela,
+        rendimento,
+        saida: saidaSemanal
+      });
+    } else if (rendimento && rendimento > 0 && !estoqueIncerto) {
       const simulada = [...oferta];
       const base = saidaSemanal / rendimento;
-      // Mudas vêm em bandejas inteiras: acumula a necessidade semana a semana e
-      // planta uma bandeja quando o acumulado passa de meia bandeja. Assim cada
-      // variedade entra no rodízio no intervalo que a saída dela pede.
-      const bandeja = forma === "Muda" && config.bandeja > 0 ? config.bandeja : 0;
-      let acumulado = 0;
       for (let i = 0; i < config.semanasPlantio; i++) {
         const dataPlantio = somarDias(hoje, 7 * i);
         const primeiraColheita = somarDias(dataPlantio, crop.dias);
@@ -328,16 +336,8 @@ export function calcularPlanejamento(
         let q = jaTem >= 1.3 * saidaSemanal ? 0 : base + 0.5 * (corrigido - base);
         q = Math.max(0, Math.min(q, 2 * base));
         q = q * (1 + config.margem);
-        let quantidade: number;
-        if (bandeja) {
-          acumulado += q;
-          const bandejas = acumulado >= bandeja / 2 ? Math.max(1, Math.round(acumulado / bandeja)) : 0;
-          quantidade = bandejas * bandeja;
-          acumulado -= quantidade;
-        } else {
-          const arredonda = forma === "Semente" ? 1 : 10;
-          quantidade = q > 0 ? Math.ceil(q / arredonda) * arredonda : 0;
-        }
+        const arredonda = forma === "Semente" ? 1 : 10;
+        const quantidade = q > 0 ? Math.ceil(q / arredonda) * arredonda : 0;
         plantar.push({ data: dataPlantio, quantidade, base: arred(base * (1 + config.margem), 0) });
         if (quantidade > 0) {
           espalhar(simulada, hoje, primeiraColheita, somarDias(primeiraColheita, Math.max(7, crop.duracao || 0)), quantidade * rendimento);
@@ -383,7 +383,7 @@ export function calcularPlanejamento(
     });
   });
 
-  nivelarBandejas(culturas, config);
+  agendarBandejas(paraBandejas, config, hoje);
 
   // Principais: fixadas + as de colheita mais frequente (até 12 no total).
   const ordem = [...culturas].sort((a, b) =>
@@ -397,36 +397,83 @@ export function calcularPlanejamento(
   return { hoje, inicioDados, semanasDeDados, culturas: ordem };
 }
 
+interface ContextoBandeja {
+  plantar: PlanoCultura["plantar"];
+  simulada: number[];
+  dias: number;
+  duracao: number;
+  semanasNaJanela: number;
+  rendimento: number;
+  saida: number;
+}
+
 /**
- * Deixa o número de bandejas por semana mais regular: quando uma semana passa
- * da média e a anterior está abaixo, antecipa uma bandeja em uma semana
- * (antecipar é seguro: a alface fica pronta antes, nunca depois).
+ * Rodízio de bandejas para todas as culturas de muda, em cadência fixa.
+ *
+ * Cada cultura tem um intervalo entre bandejas: bandeja × rendimento ÷ (saída
+ * com margem). Ex.: 200 mudas ÷ 56 pés/semana = uma bandeja a cada 3,6 semanas.
+ * Como a margem deixa esse intervalo menor que a janela de colheita, uma
+ * bandeja sempre começa antes de a anterior acabar.
+ *  - Início: a primeira bandeja entra na semana em que o campo atual deixaria
+ *    faltar meia bandeja ou mais nas duas primeiras semanas de colheita dela.
+ *  - Depois: segue a cadência. Se a saída mudar, o cálculo da semana seguinte
+ *    já usa o intervalo novo.
+ *  - Semana abaixo da média de bandejas: adianta a cultura mais perto da vez
+ *    (pelo menos 60% do intervalo). Adiantar é seguro; atrasar não acontece.
  */
-function nivelarBandejas(culturas: PlanoCultura[], config: ConfigPlanejamento) {
+function agendarBandejas(ctxs: ContextoBandeja[], config: ConfigPlanejamento, hoje: string) {
   const b = config.bandeja;
   const n = config.semanasPlantio;
-  if (!(b > 0) || n < 2) return;
-  const comBandeja = culturas.filter(c => c.forma === "Muda" && c.plantar.length === n);
-  if (comBandeja.length === 0) return;
-  const total = (i: number) => comBandeja.reduce((s, c) => s + (c.plantar.at(i)?.quantidade || 0), 0) / b;
-  let soma = 0;
-  for (let i = 0; i < n; i++) soma += total(i);
-  const alvo = Math.max(1, Math.round(soma / n));
-  for (let passada = 0; passada < n; passada++) {
-    let mudou = false;
-    for (let i = n - 1; i >= 1; i--) {
-      while (total(i) > alvo && total(i - 1) < alvo) {
-        const candidata = comBandeja
-          .filter(c => (c.plantar.at(i)?.quantidade || 0) >= b && (c.plantar.at(i - 1)?.quantidade || 0) === 0)
-          .sort((x, y) => y.saidaSemanal - x.saidaSemanal)[0];
-        if (!candidata) break;
-        const atual = candidata.plantar.at(i)!, anterior = candidata.plantar.at(i - 1)!;
-        atual.quantidade -= b;
-        anterior.quantidade += b;
-        mudou = true;
+  if (!(b > 0) || ctxs.length === 0) return;
+  const m = 1 + config.margem;
+  const base = (c: ContextoBandeja) => (c.saida * m) / c.rendimento;
+  const porBandeja = (c: ContextoBandeja) => (b * c.rendimento) / c.semanasNaJanela;
+  ctxs.forEach(c => {
+    for (let i = 0; i < n; i++) c.plantar.push({ data: somarDias(hoje, 7 * i), quantidade: 0, base: arred(base(c), 0) });
+  });
+  // Bandejas por semana para equilibrar: a média arredondada. Com menos de 1,5
+  // bandeja por semana em média não há o que equilibrar.
+  const media = ctxs.reduce((s, c) => s + base(c), 0) / b;
+  const alvo = media >= 1.5 ? Math.round(media) : 0;
+  const faltaEmBandejas = (c: ContextoBandeja, i: number) => {
+    if (!(c.saida > 0)) return 0;
+    const t = Math.floor((7 * i + c.dias) / 7);
+    const menor = Math.min(c.simulada.at(t) ?? 0, c.simulada.at(t + 1) ?? 0);
+    return Math.max(0, c.saida * m - menor) / porBandeja(c);
+  };
+  const plantar = (c: ContextoBandeja, i: number, bandejas: number) => {
+    const inicio = somarDias(hoje, 7 * i + c.dias);
+    espalhar(c.simulada, hoje, inicio, somarDias(inicio, c.duracao), bandejas * b * c.rendimento);
+    c.plantar[i].quantidade += bandejas * b;
+  };
+  // Fração do intervalo já cumprida desde a última bandeja (1 = é a vez).
+  const passo = new Map(ctxs.map(c => [c, c.saida > 0 ? base(c) / b : 0] as [ContextoBandeja, number]));
+  const vez = new Map<ContextoBandeja, number | null>(ctxs.map(c => [c, null]));
+  for (let i = 0; i < n; i++) {
+    let total = 0;
+    for (const c of ctxs) {
+      const f = faltaEmBandejas(c, i);
+      const v = vez.get(c);
+      if (v === null || v === undefined) {
+        if (f >= 0.5) { plantar(c, i, 1); total++; vez.set(c, 0); }
+        continue;
+      }
+      const agora = v + (passo.get(c) || 0);
+      if (agora >= 1 - 1e-9) {
+        plantar(c, i, 1); total++; vez.set(c, agora - 1);
+      } else {
+        vez.set(c, agora);
       }
     }
-    if (!mudou) break;
+    if (total < alvo) {
+      const adiantaveis = ctxs
+        .filter(c => c.plantar[i].quantidade === 0 && (vez.get(c) ?? -1) >= 0.6)
+        .sort((x, y) => (vez.get(y) ?? 0) - (vez.get(x) ?? 0));
+      for (const c of adiantaveis) {
+        if (total >= alvo) break;
+        plantar(c, i, 1); total++; vez.set(c, (vez.get(c) ?? 0) - 1);
+      }
+    }
   }
 }
 
