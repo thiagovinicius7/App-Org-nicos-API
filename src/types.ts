@@ -5,6 +5,13 @@ export interface Crop {
   dias: number;
   duracao: number;
   unidadeColheita?: string; // e.g. "kg", "UN", "MÇ", "BJ", "PCT", "CX"
+  /** Ajustes do planejamento de plantio (aba Planejamento). */
+  planejamento?: {
+    principal?: boolean;
+    ignorar?: boolean;
+    metaSemanal?: number;
+    rendimento?: number;
+  };
 }
 
 export interface Purchase {
